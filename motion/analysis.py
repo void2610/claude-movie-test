@@ -30,6 +30,12 @@ class MusicInfo:
     def timeline(self, beats_per_bar: int = 4) -> Timeline:
         return Timeline(self.bpm, self.downbeats[0] if self.downbeats else 0.0, beats_per_bar)
 
+    def shift_downbeats(self, n: int, beats_per_bar: int = 4) -> MusicInfo:
+        """小節頭の推定が n 拍ずれているときに補正する (毎拍キックの曲などでは推定が曖昧になる)。"""
+        idx = int(np.argmin(np.abs(np.asarray(self.beats) - self.downbeats[0]))) + n
+        return MusicInfo(self.bpm, self.beats, self.beats[idx % beats_per_bar::beats_per_bar], self.onsets,
+                         self.onsets_strong, self.duration)
+
     def nearest_beat(self, t: float) -> float:
         b = np.asarray(self.beats)
         return float(b[np.argmin(np.abs(b - t))]) if len(b) else t
@@ -55,13 +61,23 @@ def analyze(path: str | Path, beats_per_bar: int = 4, bpm_hint: float | None = N
         slope = np.polyfit(np.arange(len(beats)), beats, 1)[0]
         bpm = 60.0 / float(slope)
 
-    # 小節頭: 低音域のオンセットが最も強く乗る位相を選ぶ
+    # 小節頭: 低音域のアタックと和音の変わり目 (クロマの変化) が最も多く乗る位相を選ぶ
     S = np.abs(librosa.stft(y, hop_length=hop))
     freqs = librosa.fft_frequencies(sr=sr)
     low = librosa.onset.onset_strength(S=librosa.amplitude_to_db(S[freqs < 150]), sr=sr, hop_length=hop)
-    scores = [low[beat_frames[k::beats_per_bar]].sum() if len(beat_frames) > k else 0
-              for k in range(beats_per_bar)]
-    phase = int(np.argmax(scores)) if len(beat_frames) else 0
+    phase = 0
+    if len(beat_frames) > beats_per_bar:
+        chroma = librosa.feature.chroma_stft(S=S ** 2, sr=sr, hop_length=hop)
+        sync = librosa.util.sync(chroma, beat_frames, aggregate=np.median)
+        # sync の先頭は最初の拍より前の区間なので、diff の j 番目が j 番目の拍での変化になる
+        change = np.linalg.norm(np.diff(sync, axis=1), axis=0)[:len(beat_frames)]
+        lows = low[beat_frames]
+
+        def z(v):
+            return (v - v.mean()) / (v.std() + 1e-9)
+
+        score = z(lows) + z(change)
+        phase = int(np.argmax([score[k::beats_per_bar].mean() for k in range(beats_per_bar)]))
     downbeats = beats[phase::beats_per_bar]
 
     onset_frames = librosa.onset.onset_detect(onset_envelope=env, sr=sr, hop_length=hop, units="frames")
