@@ -14,6 +14,8 @@ uv run python -m motion render projects/demo --start 2 --end 4
 uv run python -m motion sheet projects/demo             # コンタクトシート (build/demo/sheet.png)
 uv run python -m motion still projects/demo 3.5         # 1 フレームの PNG
 uv run python -m motion audio projects/demo             # 音だけ
+uv run python -m motion patches pads/                   # Surge XT のパッチ検索
+uv run python -m motion audition pads/ -n 8             # 候補を同じ和音で順に鳴らした build/audition.wav
 ```
 
 | モジュール | 役割 |
@@ -25,7 +27,7 @@ uv run python -m motion audio projects/demo             # 音だけ
 | `text` | harfbuzz で組み、可変フォントの軸を指定して描く。`letters()` で 1 文字ずつ動かせる。フォントは `assets/fonts` (`sans` / `sans-mono` / `mono`) |
 | `noise` | `perlin3` `fbm3` `curl2` `noise1` `hash01` |
 | `post` | `bloom` `chroma` `grain` `vignette` `glitch` `scanlines` `flash` `grade`。引数に `lambda ctx: ...` を渡せる |
-| `audio` | `Mix`: `hit` (サンプル)、`tone` (内蔵シンセ)、`instrument` (Surge XT 等の VST3)、`fx` `duck`、`render` で LUFS を揃えて wav 出力 |
+| `audio` | `Mix`: `hit` (サンプル)、`tone` (内蔵シンセ)、`instrument` (Surge XT 等の VST3。`patch="Pads/MKS-70 Warm Pad"` でパッチ指定)、`fx` `duck`、`render` で LUFS を揃えて wav 出力 |
 | `blender` | `render_plate` で Blender をヘッドレス実行して連番 PNG を作る (入力が同じならキャッシュ)。`Plate` で時刻から引いて合成。初回だけ Metal カーネルのコンパイルに数分かかる |
 
 - 描画は `f(t)` で決定的に書く (乱数はシード固定か `noise.hash01`)。並列ワーカーがフレームをばらばらに描くため、フレーム間で状態を持ち越さない。シミュレーションは `Scene.setup` で一括して前計算する

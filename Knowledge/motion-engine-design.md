@@ -18,6 +18,9 @@
 
 ## ハマりどころ
 
+- Surge XT のパッチ (.fxp) は pedalboard の `load_preset` (.vstpreset 専用) では読めない。`raw_state` は `VC2!` + XML 長 (LE) + XML + NUL で、XML の `<IComponent>` が JUCE 独自の Base64 (`<バイト数>.<6bit を LSB から詰めた文字列>`)。中身は Surge の `sub3` チャンク + JUCE の付加データ (`JUCEPrivateData`) なので、.fxp の offset 60 以降のチャンクと差し替えて書き戻す (`audio.surge_load`)
+- Surge は状態を書き込んだ直後の処理ブロックでパッチを反映し、その 1 回は無音になる。読み込み後に空の処理を 1 回挟む
+
 - skia-python の可変フォント: `FontArguments().setVariationDesignPosition(pos)` の戻り値を `makeClone` に渡すと指定が失われる。`FontArguments` を変数に保持してから渡す
 - skia-python に `SetFourByteTag` は無い。タグは `int.from_bytes(b"wght", "big")` で作る
 - 可変フォントでない書体に `getVariationDesignParameters()` を呼ぶと RuntimeError になる
