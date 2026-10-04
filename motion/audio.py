@@ -4,10 +4,13 @@
 """
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 import re
 import struct
+import subprocess
+import tempfile
 from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
@@ -48,6 +51,20 @@ def load(path: str | Path, sr: int = SR) -> np.ndarray:
     if x.shape[0] == 1:
         x = np.vstack([x, x])
     return x[:2].astype(np.float32)
+
+
+def load_any(path: str | Path, sr: int = SR) -> np.ndarray:
+    """load と同じだが、読めない形式 (動画の音声トラック等) は ffmpeg で wav にしてから読む。"""
+    try:
+        return load(str(path), sr)
+    except Exception:
+        p = Path(path).resolve()
+        h = hashlib.sha1(f"{p}{p.stat().st_mtime}{sr}".encode()).hexdigest()[:16]
+        wav = Path(tempfile.gettempdir()) / f"motion-audio-{h}.wav"
+        if not wav.exists():
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(p), "-vn", "-ac", "2", "-ar", str(sr),
+                            str(wav)], check=True)
+        return load(str(wav), sr)
 
 
 _NOTE = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
@@ -278,6 +295,12 @@ class Mix:
         m = min(buf.shape[1] - j0, self.n - i0)
         if m > 0:
             self.bus(bus)[:, i0:i0 + m] += buf[:, j0:j0 + m]
+
+    def file(self, path: str | Path, t: float = 0.0, offset: float = 0.0, length: float | None = None,
+             gain_db: float = 0.0, pan: float = 0.0, bus: str = "media") -> None:
+        """音声ファイルや動画の音を、元の offset 秒から時刻 t に配置する。"""
+        buf = load_any(path, self.sr)
+        self.place(buf[:, int(offset * self.sr):], t, gain_db, pan, bus, length=length)
 
     def hit(self, name: str, t: float, i: int = 0, gain_db: float = 0.0, pan: float = 0.0, bus: str = "drums",
             rate: float = 1.0, length: float | None = None) -> None:
