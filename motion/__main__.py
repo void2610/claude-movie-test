@@ -38,7 +38,31 @@ def main() -> None:
     a = sub.add_parser("audio", help="音声だけを書き出す")
     a.add_argument("project")
 
+    pl = sub.add_parser("patches", help="Surge XT のパッチを検索する")
+    pl.add_argument("query", nargs="?", default="")
+
+    au = sub.add_parser("audition", help="Surge XT のパッチを同じ和音で順番に鳴らした wav を作る")
+    au.add_argument("query", help="パッチ名・カテゴリの部分一致 (例: pads)")
+    au.add_argument("-n", type=int, default=8, help="最大件数")
+    au.add_argument("--notes", default="F3,G#3,C4")
+    au.add_argument("-o", "--out", default="build/audition.wav")
+
     args = ap.parse_args()
+    if args.cmd == "patches":
+        from .audio import SURGE_PATCH_DIRS, surge_patches
+        for p in surge_patches(args.query):
+            root = next(d for d in SURGE_PATCH_DIRS if d in p.parents)
+            print(p.relative_to(root).with_suffix(""))
+        return
+    if args.cmd == "audition":
+        from .audio import audition, surge_patches
+        hits = surge_patches(args.query)[:args.n]
+        if not hits:
+            raise SystemExit(f"no patches match: {args.query}")
+        for t, name in audition(hits, args.out, args.notes.split(",")):
+            print(f"{t:6.2f}s  {name}")
+        print(f"-> {args.out}")
+        return
     if args.cmd == "render":
         if args.draft:
             render_video(args.project, args.out, scale=min(args.scale, 0.5), start=args.start, end=args.end,

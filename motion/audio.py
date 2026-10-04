@@ -7,6 +7,7 @@ from __future__ import annotations
 import math
 import os
 import re
+import struct
 from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
@@ -145,6 +146,99 @@ def _plugin(path: str):
     return pb.load_plugin(path)
 
 
+SURGE_PATCH_DIRS = [Path("/Library/Application Support/Surge XT/patches_factory"),
+                    Path("/Library/Application Support/Surge XT/patches_3rdparty"),
+                    Path("~/Documents/Surge XT/Patches").expanduser()]
+
+# JUCE の MemoryBlock::toBase64Encoding 独自形式 ("<バイト数>.<文字列>"、6bit を LSB から詰める)
+_JB64 = ".ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+"
+
+
+def _juce_b64decode(s: str) -> bytes:
+    size, data = s.split(".", 1)
+    n = int(size)
+    bits = 0
+    acc = 0
+    out = bytearray()
+    for ch in data:
+        acc |= _JB64.index(ch) << bits
+        bits += 6
+        while bits >= 8 and len(out) < n:
+            out.append(acc & 0xFF)
+            acc >>= 8
+            bits -= 8
+    return bytes(out.ljust(n, b"\0"))
+
+
+def _juce_b64encode(b: bytes) -> str:
+    chars = []
+    acc = 0
+    bits = 0
+    for byte in b:
+        acc |= byte << bits
+        bits += 8
+        while bits >= 6:
+            chars.append(_JB64[acc & 63])
+            acc >>= 6
+            bits -= 6
+    if bits:
+        chars.append(_JB64[acc & 63])
+    return f"{len(b)}.{''.join(chars)}"
+
+
+def surge_patches(query: str = "") -> list[Path]:
+    """Surge XT のパッチ (.fxp) を名前・カテゴリの部分一致で探す。"""
+    q = query.lower()
+    out = []
+    for d in SURGE_PATCH_DIRS:
+        if d.exists():
+            out += [p for p in d.rglob("*.fxp") if q in str(p.relative_to(d)).lower()]
+    return sorted(out)
+
+
+def surge_load(plugin, patch: str | Path) -> None:
+    """Surge XT に .fxp パッチを読み込ませる。名前だけ渡すとファクトリーパッチから探す。"""
+    p = Path(patch)
+    if not p.exists():
+        hits = [h for h in surge_patches(str(patch)) if h.stem.lower() == p.stem.lower()] or surge_patches(str(patch))
+        if not hits:
+            raise FileNotFoundError(f"surge patch not found: {patch}")
+        p = hits[0]
+    fxp = p.read_bytes()
+    if fxp[:4] != b"CcnK" or fxp[8:12] != b"FPCh":
+        raise ValueError(f"not a chunk fxp: {p}")
+    chunk = fxp[60:60 + struct.unpack(">I", fxp[56:60])[0]]
+
+    # 状態は "VC2!" + XML 長 + XML。XML の IComponent に Surge のチャンク + JUCE の付加データが入っている
+    st = plugin.raw_state
+    xml = st[8:8 + struct.unpack("<I", st[4:8])[0]].decode("utf-8")
+    m = re.search(r"<IComponent>([^<]*)</IComponent>", xml)
+    comp = _juce_b64decode(m.group(1))
+    xmlsize = struct.unpack("<I", comp[4:8])[0]
+    wt = struct.unpack("<6I", comp[8:32])
+    trailer = comp[32 + xmlsize + sum(wt):]
+    xml = xml[:m.start(1)] + _juce_b64encode(chunk + trailer) + xml[m.end(1):]
+    xb = xml.encode("utf-8")
+    plugin.raw_state = b"VC2!" + struct.pack("<I", len(xb)) + xb + b"\0"
+    # Surge は状態の反映を次の処理ブロックで行い、その回は無音になるため空打ちしておく
+    plugin([], duration=0.25, sample_rate=SR)
+
+
+def audition(patches: list[str | Path], out: str | Path, notes: Iterable[int | str] = ("F3", "G#3", "C4"),
+             hold: float = 2.5, gap: float = 0.75) -> list[tuple[float, str]]:
+    """パッチを順番に同じ和音で鳴らした試聴用 wav を作り、(開始秒, パッチ名) の一覧を返す。"""
+    patches = list(patches)
+    span = hold + gap
+    mx = Mix(span * len(patches), tail=1.0)
+    index = []
+    for i, pt in enumerate(patches):
+        t = i * span
+        mx.instrument([(t, hold, n, 100) for n in notes], patch=pt, bus=f"p{i}")
+        index.append((t, Path(pt).stem))
+    mx.render(out, lufs=-16)
+    return index
+
+
 class Mix:
     def __init__(self, duration: float, sr: int = SR, tail: float = 1.5):
         self.sr = sr
@@ -213,10 +307,15 @@ class Mix:
         out *= adsr(n, self.sr, a, d, s, r, dur) / math.sqrt(voices)
         self.place(out, t, gain_db, pan, bus)
 
-    def instrument(self, notes: Iterable[tuple], *, plugin: str = SURGE, bus: str = "inst", gain_db: float = 0.0,
-                   params: dict | None = None) -> None:
-        """VST3 楽器で (時刻, 長さ, 音高, ベロシティ) のノート列を演奏してバスに足す。"""
+    def instrument(self, notes: Iterable[tuple], *, plugin: str = SURGE, patch: str | Path | None = None,
+                   bus: str = "inst", gain_db: float = 0.0, params: dict | None = None) -> None:
+        """VST3 楽器で (時刻, 長さ, 音高, ベロシティ) のノート列を演奏してバスに足す。
+
+        patch は Surge XT のパッチ名 ("MKS-70 Warm Pad" 等) か .fxp のパス。
+        """
         p = _plugin(plugin)
+        if patch is not None:
+            surge_load(p, patch)
         for k, v in (params or {}).items():
             setattr(p, k, v)
         msgs = []
