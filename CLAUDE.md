@@ -18,6 +18,9 @@ uv run python -m motion audio projects/demo             # 音だけ
 uv run python -m motion patches pads/                   # Surge XT のパッチ検索
 uv run python -m motion audition pads/ -n 8             # 候補を同じ和音で順に鳴らした build/audition.wav
 uv run python -m motion analyze song.mp3                # 既存の曲の BPM・小節頭・強いオンセット
+uv run python -m motion scan capture.mp4 --top 6        # キャプチャの見せ場の候補とシーンの切れ目 (グラフ画像つき)
+uv run python -m motion render projects/devlog --set aspect=9:16          # build(aspect="9:16") で書き出す
+uv run python -m motion render projects/devlog --start 3 --end 8 -o x.gif # GIF / .webm も拡張子で切り替わる
 uv run pytest                                           # テスト (描画を意図して変えたら UPDATE_GOLDEN=1 で基準画像を更新)
 ```
 
@@ -32,15 +35,21 @@ uv run pytest                                           # テスト (描画を�
 | `noise` | `perlin3` `fbm3` `curl2` `noise1` `hash01` |
 | `post` | `bloom` `chroma` `grain` `vignette` `glitch` `scanlines` `flash` `grade`。引数に `lambda ctx: ...` を渡せる。光学系はリニア空間、演出系 (`fx.space = "display"`) は sRGB で処理される |
 | `media` | `Image` / `Video` (動画は `comp.prepare.append(clip.prepare)` で作品の fps にフレームを書き出す)、`fit="cover" / "contain"` |
-| `audio` | `Mix`: `hit` (サンプル)、`tone` (内蔵シンセ)、`instrument` (Surge XT 等の VST3。`patch="Pads/MKS-70 Warm Pad"` でパッチ指定)、`file` (音声・動画の音)、`sfx`、`fx` `duck`、`render` で LUFS を揃えて wav 出力 |
+| `audio` | `Mix`: `hit` (サンプル)、`tone` (内蔵シンセ)、`instrument` (Surge XT 等の VST3。`patch="Pads/MKS-70 Warm Pad"` でパッチ指定)、`file` (音声・動画の音)、`clip` (Clip の音を速度変化に追従させる。フリーズ中は無音)、`sfx`、`fx` `duck`、`render` で LUFS を揃えて wav 出力 |
 | `sfx` | `whoosh` `riser` `impact` `click` `glitch` `reverse_swell`。`mx.sfx(sound, t)` で音の山を t に合わせる |
 | `analysis` | `analyze(path)` で BPM・拍・小節頭・オンセット。`info.timeline()` で Timeline にできる。小節頭がずれたら `shift_downbeats(n)` |
 | `cache` | `cached(comp, name, fn, *deps)` で重い前計算を build/<作品>/cache に保存し全ワーカーで共有 |
+| `footage` | ゲームのキャプチャ等。`Footage(path)` を `comp.prepare` に登録すると使う区間だけ書き出す。`Clip(footage, at, src_in, time=TimeMap().play().ramp().hold().rewind().seek())` で速度変化・フリーズ・逆再生・ジャンプカット。`interp="flow"` でスローを補間。`Grade` (露出・彩度・色温度・.cube LUT) |
+| `edit` | `cut_on_beats` + `Sequence` (拍でカット割り・パンチイン)、`compare` (改修前後の比較スライダー)、`blur_fill` (縦動画の背景)、`pip`、`ken_burns` |
+| `overlay` | `callout` (引き出し線つきラベル)、`highlight` (周りを暗くして囲む)、`lower_third`、`badge`、`Captions` (SRT または Cue のリスト) |
+| `scan` | キャプチャの動きの量・音の大きさ・シーンの切れ目を測り、`highlights(n)` で見せ場の候補を返す |
 | `blender` | `render_plate` で Blender をヘッドレス実行して連番 PNG を作る (入力が同じならキャッシュ)。`Plate` で時刻から引いて合成。初回だけ Metal カーネルのコンパイルに数分かかる |
 
 - 描画は `f(t)` で決定的に書く (乱数はシード固定か `noise.hash01`)。並列ワーカーがフレームをばらばらに描くため、フレーム間で状態を持ち越さない。シミュレーションは `Scene.setup` で `cache.cached` を使って前計算する
 - `draw.fill` は変換を無視してクリップ全体を塗る。シーンを動かす演出では、自分でフレーム枠にクリップする (トランジションはクリップ済み)
 - 映像と音で同じ `comp.cues` を使うと、カメラシェイク・フラッシュ・音のアタックが揃う
+- 作品のパラメータ (縦長版・言語違いなど) は `build(**params)` で受け、CLI の `--set key=value` で渡す。出力名にパラメータが付く
+- 映像の上限ビットレートは 1080p60 で 16Mbps (解像度と fps に比例)。グレインがあると上限なしでは 100Mbps を超える
 - 調整は `preview` で行い、仕上がりは `sheet` / `still` の画像を自分で見て確認してから、本番の `render` に進む
 
 ## 参考資料
