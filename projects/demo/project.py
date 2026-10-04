@@ -4,7 +4,7 @@ import math
 import numpy as np
 import pedalboard as pb
 
-from motion import Composition, Palette, Scene, anim, audio, draw, easing, noise, post, scene, text
+from motion import Composition, Palette, Scene, anim, audio, cache, draw, easing, noise, post, scene, text
 from motion.anim import impact, progress, spring, stagger, tween, window
 
 BPM = 120
@@ -102,21 +102,25 @@ def build() -> Composition:
         HZ = 240
 
         def setup(self, comp):
-            rng = np.random.default_rng(7)
-            a = rng.uniform(0, 2 * math.pi, self.N)
-            rad = 260 * np.sqrt(rng.uniform(0, 1, self.N))
-            p = np.stack([comp.width / 2 + rad * np.cos(a), comp.height / 2 + rad * np.sin(a)], 1)
-            steps = int((self.end - self.start) * self.HZ) + 2
-            self.traj = np.zeros((steps, self.N, 2), np.float32)
-            dt = 1 / self.HZ
-            for k in range(steps):
-                self.traj[k] = p
-                vx, vy = noise.curl2(p[:, 0], p[:, 1], k * dt * 0.6, scale=1 / 380, seed=3)
-                # 中心からの外向き成分を少し足して、花火のように開かせる
-                ox, oy = p[:, 0] - comp.width / 2, p[:, 1] - comp.height / 2
-                rr = np.hypot(ox, oy) + 1
-                p = p + np.stack([vx * 520 + ox / rr * 90, vy * 520 + oy / rr * 90], 1) * dt
-            self.hue = rng.uniform(0, 1, self.N)
+            def simulate():
+                rng = np.random.default_rng(7)
+                a = rng.uniform(0, 2 * math.pi, self.N)
+                rad = 260 * np.sqrt(rng.uniform(0, 1, self.N))
+                p = np.stack([comp.width / 2 + rad * np.cos(a), comp.height / 2 + rad * np.sin(a)], 1)
+                steps = int((self.end - self.start) * self.HZ) + 2
+                traj = np.zeros((steps, self.N, 2), np.float32)
+                dt = 1 / self.HZ
+                for k in range(steps):
+                    traj[k] = p
+                    vx, vy = noise.curl2(p[:, 0], p[:, 1], k * dt * 0.6, scale=1 / 380, seed=3)
+                    # 中心からの外向き成分を少し足して、花火のように開かせる
+                    ox, oy = p[:, 0] - comp.width / 2, p[:, 1] - comp.height / 2
+                    rr = np.hypot(ox, oy) + 1
+                    p = p + np.stack([vx * 520 + ox / rr * 90, vy * 520 + oy / rr * 90], 1) * dt
+                return {"traj": traj, "hue": rng.uniform(0, 1, self.N)}
+
+            data = cache.cached(comp, "particles", simulate, self.N, self.HZ, self.start, self.end)
+            self.traj, self.hue = data["traj"], data["hue"]
 
         def draw(self, c, ctx):
             k = ctx.lt * self.HZ
