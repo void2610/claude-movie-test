@@ -18,6 +18,7 @@ def main() -> None:
     r.add_argument("--crf", type=int, default=18)
     r.add_argument("--draft", action="store_true", help="半分の解像度・ブラーなし・高速エンコード")
     r.add_argument("--no-audio", action="store_true")
+    r.add_argument("--codec", choices=["x264", "hw"], help="既定は本番 x264、--draft 時は hw")
 
     s = sub.add_parser("sheet", help="等間隔フレームのコンタクトシート")
     s.add_argument("project")
@@ -67,10 +68,10 @@ def main() -> None:
         if args.draft:
             render_video(args.project, args.out, scale=min(args.scale, 0.5), start=args.start, end=args.end,
                          workers=args.workers, crf=23, preset="veryfast", motion_blur=False,
-                         audio=not args.no_audio)
+                         audio=not args.no_audio, codec=args.codec or "hw")
         else:
             render_video(args.project, args.out, scale=args.scale, start=args.start, end=args.end,
-                         workers=args.workers, crf=args.crf, audio=not args.no_audio)
+                         workers=args.workers, crf=args.crf, audio=not args.no_audio, codec=args.codec or "x264")
     elif args.cmd == "sheet":
         contact_sheet(args.project, args.out, count=args.count, cols=args.cols, scale=args.scale,
                       start=args.start, end=args.end, workers=args.workers)

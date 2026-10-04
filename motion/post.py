@@ -34,21 +34,24 @@ def bloom(threshold=0.75, strength=0.6, radius=24.0, knee=0.15):
         if s <= 0:
             return img
         th = _v(threshold, ctx)
-        luma = img @ np.array([0.2126, 0.7152, 0.0722], np.float32)
-        w = np.clip((luma - th + knee) / (2 * knee), 0, 1)[..., None]
-        bright = img * w
-        r = _v(radius, ctx) * _k(img)
-        acc = np.zeros_like(img)
         h, wdt = img.shape[:2]
-        small = bright
+        # 輝度抽出から 1/2 解像度で行う (グローは低周波なので見た目は変わらない)
+        half = cv2.resize(img, (max(wdt // 2, 1), max(h // 2, 1)), interpolation=cv2.INTER_AREA)
+        luma = cv2.cvtColor(half, cv2.COLOR_RGB2GRAY)
+        w = np.clip((luma - th + knee) / (2 * knee), 0, 1)
+        small = half * w[..., None]
+        r = _v(radius, ctx) * _k(img) / 2
+        acc = np.zeros_like(half)
+        hh, ww = half.shape[:2]
         # 解像度を落としながら重ねると、広い半径のグローを安く作れる
         for i in range(4):
             sigma = max(r * (0.5 ** (3 - i)) / (2 ** i), 0.5)
             blurred = cv2.GaussianBlur(small, (0, 0), sigma)
-            acc += cv2.resize(blurred, (wdt, h), interpolation=cv2.INTER_LINEAR)
+            acc += blurred if i == 0 else cv2.resize(blurred, (ww, hh), interpolation=cv2.INTER_LINEAR)
             small = cv2.resize(small, (max(small.shape[1] // 2, 1), max(small.shape[0] // 2, 1)),
                                interpolation=cv2.INTER_AREA)
-        return img + acc * (s / 4)
+        glow = cv2.resize(acc, (wdt, h), interpolation=cv2.INTER_LINEAR)
+        return cv2.scaleAdd(glow, s / 4, img)
     return fx
 
 
@@ -73,21 +76,28 @@ def chroma(amount=2.0, center=True):
     return fx
 
 
-def grain(amount=0.035, size=1.0, seed=0):
+def grain(amount=0.035, size=1.0, seed=0, variants=6):
+    tiles: dict = {}
+
     def fx(img, ctx):
         a = _v(amount, ctx)
         if a <= 0:
             return img
         h, w = img.shape[:2]
-        rng = np.random.default_rng(seed + int(round(ctx.frame * 7919)))
         sz = max(_v(size, ctx) * _k(img), 1.0)
-        gh, gw = max(int(h / sz), 1), max(int(w / sz), 1)
-        n = rng.standard_normal((gh, gw), dtype=np.float32)
-        if (gh, gw) != (h, w):
-            n = cv2.resize(n, (w, h), interpolation=cv2.INTER_LINEAR)
+        key = (h, w, round(sz, 2))
+        if key not in tiles:
+            # 毎フレーム正規乱数を作ると重いので、数枚を作り置きしてずらして使う
+            rng = np.random.default_rng(seed)
+            gh, gw = max(int(h / sz), 1), max(int(w / sz), 1)
+            tiles[key] = [cv2.resize(rng.standard_normal((gh, gw), dtype=np.float32), (w, h),
+                                     interpolation=cv2.INTER_LINEAR) for _ in range(variants)]
+        f = int(round(ctx.frame))
+        r = np.random.default_rng(seed + f * 7919)
+        n = np.roll(tiles[key][f % variants], (int(r.integers(0, h)), int(r.integers(0, w))), axis=(0, 1))
         # 暗部ほど粒子を強く見せるとフィルムらしくなる
-        luma = img.mean(axis=2, keepdims=True)
-        return img + n[..., None] * a * (1.2 - luma)
+        luma = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        return img + (n * (a * (1.2 - luma)))[..., None]
     return _display(fx)
 
 

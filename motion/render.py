@@ -40,6 +40,9 @@ def load_project(path: str | Path) -> Composition:
 def prepare(comp: Composition) -> None:
     for fn in comp.prepare:
         fn(comp)
+    # cache.cached を使う setup の結果をワーカー起動前に作っておく
+    for s in comp.scenes:
+        s.ensure_setup(comp)
 
 
 class FrameRenderer:
@@ -126,7 +129,8 @@ def _render_one(f: int) -> bytes:
 
 def _pool(project, scale, mb, post, workers):
     ctx = mp.get_context("spawn")
-    return ctx.Pool(workers or max(os.cpu_count() - 1, 1), _init_worker, (str(project), scale, mb, post))
+    # x264 のエンコードにも CPU が要るので、既定では 2 コア残す
+    return ctx.Pool(workers or max(os.cpu_count() - 2, 1), _init_worker, (str(project), scale, mb, post))
 
 
 def _frames(comp: Composition, start: float | None, end: float | None, step: int = 1) -> list[int]:
@@ -138,7 +142,8 @@ def _frames(comp: Composition, start: float | None, end: float | None, step: int
 def render_video(project: str | Path, out: str | Path | None = None, *, scale: float = 1.0,
                  start: float | None = None, end: float | None = None, workers: int | None = None,
                  crf: int = 18, preset: str = "medium", motion_blur: bool = True, post: bool = True,
-                 audio: bool = True) -> Path:
+                 audio: bool = True, codec: str = "x264") -> Path:
+    """codec は "x264" (高画質・CPU) か "hw" (VideoToolbox・高速。下書き向け)。"""
     comp = load_project(project)
     prepare(comp)
     frames = _frames(comp, start, end)
@@ -156,8 +161,12 @@ def render_video(project: str | Path, out: str | Path | None = None, *, scale: f
     if wav:
         cmd += ["-ss", f"{frames[0] / comp.fps:.6f}", "-i", str(wav)]
     # 奇数解像度だと yuv420p でエンコードできないため偶数に丸める
-    cmd += ["-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-c:v", "libx264", "-preset", preset, "-crf", str(crf),
-            "-pix_fmt", "yuv420p", "-movflags", "+faststart"]
+    cmd += ["-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-pix_fmt", "yuv420p", "-movflags", "+faststart"]
+    if codec == "hw":
+        # ハードウェアエンコーダは CPU をほぼ使わないので、レンダリングのワーカーに CPU を回せる
+        cmd += ["-c:v", "h264_videotoolbox", "-b:v", f"{int(40 * scale * scale) + 4}M"]
+    else:
+        cmd += ["-c:v", "libx264", "-preset", preset, "-crf", str(crf)]
     if wav:
         cmd += ["-c:a", "aac", "-b:a", "320k", "-shortest"]
     cmd += [str(out)]
