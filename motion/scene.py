@@ -1,0 +1,170 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Callable
+
+import skia
+
+from .color import Color, to_color
+from .timeline import Timeline
+
+
+@dataclass
+class Ctx:
+    """描画関数に渡る、ある時刻の情報。"""
+
+    t: float
+    frame: float
+    comp: Composition
+    start: float = 0.0
+    end: float = 0.0
+
+    @property
+    def lt(self) -> float:
+        return self.t - self.start
+
+    @property
+    def dur(self) -> float:
+        return self.end - self.start
+
+    @property
+    def p(self) -> float:
+        return self.lt / self.dur if self.dur > 0 else 0.0
+
+    @property
+    def tl(self) -> Timeline:
+        return self.comp.timeline
+
+    @property
+    def W(self) -> int:
+        return self.comp.width
+
+    @property
+    def H(self) -> int:
+        return self.comp.height
+
+    @property
+    def CX(self) -> float:
+        return self.comp.width / 2
+
+    @property
+    def CY(self) -> float:
+        return self.comp.height / 2
+
+    @property
+    def cues(self) -> list[float]:
+        return self.comp.cues
+
+
+class Scene:
+    """[start, end) の間だけ描画されるレイヤー。サブクラスで draw を実装する。"""
+
+    start: float = 0.0
+    end: float | None = None
+    z: int = 0
+    # True ならカメラの変換 (揺れ・ズーム) を受けない。HUD 等に使う
+    fixed: bool = False
+
+    def __init__(self, start: float | None = None, end: float | None = None, z: int | None = None,
+                 fixed: bool | None = None):
+        if start is not None:
+            self.start = start
+        if end is not None:
+            self.end = end
+        if z is not None:
+            self.z = z
+        if fixed is not None:
+            self.fixed = fixed
+        self._ready = False
+
+    def setup(self, comp: Composition) -> None:
+        """重い前計算 (シミュレーション・キャッシュ読み込み等) をワーカーごとに一度だけ行う。"""
+
+    def alpha(self, ctx: Ctx) -> float:
+        return 1.0
+
+    def draw(self, c: skia.Canvas, ctx: Ctx) -> None:
+        raise NotImplementedError
+
+    def span(self, comp: Composition) -> tuple[float, float]:
+        return self.start, comp.duration if self.end is None else self.end
+
+    def active(self, t: float, comp: Composition) -> bool:
+        s, e = self.span(comp)
+        return s <= t < e
+
+    def ensure_setup(self, comp: Composition) -> None:
+        if not self._ready:
+            self.setup(comp)
+            self._ready = True
+
+
+class FnScene(Scene):
+    def __init__(self, fn: Callable[[skia.Canvas, Ctx], None], start: float, end: float | None, z: int,
+                 alpha: Callable[[Ctx], float] | None = None, fixed: bool = False):
+        super().__init__(start, end, z, fixed)
+        self.fn = fn
+        self._alpha = alpha
+        self.__name__ = getattr(fn, "__name__", "scene")
+
+    def alpha(self, ctx: Ctx) -> float:
+        return self._alpha(ctx) if self._alpha else 1.0
+
+    def draw(self, c: skia.Canvas, ctx: Ctx) -> None:
+        self.fn(c, ctx)
+
+
+def scene(start: float = 0.0, end: float | None = None, z: int = 0, alpha: Callable[[Ctx], float] | None = None,
+          fixed: bool = False):
+    """関数を Scene にするデコレータ。`@scene(0, 2)` のように使う。"""
+    def deco(fn: Callable[[skia.Canvas, Ctx], None]) -> FnScene:
+        return FnScene(fn, start, end, z, alpha, fixed)
+    return deco
+
+
+PostFx = Callable[[Any, Ctx], Any]
+
+
+@dataclass
+class Composition:
+    width: int = 1920
+    height: int = 1080
+    fps: int = 60
+    duration: float = 10.0
+    bpm: float = 120.0
+    beat_offset: float = 0.0
+    background: Color | str = "#0C0C0F"
+    scenes: list[Scene] = field(default_factory=list)
+    post: list[PostFx] = field(default_factory=list)
+    # 全シーン共通のカメラ (揺れ・ズーム等)。canvas に変換をかける関数
+    camera: Callable[[skia.Canvas, Ctx], None] | None = None
+    # モーションブラーのサブフレーム数。時刻ごとに変えたい場合は関数を渡す
+    motion_blur: int | Callable[[float], int] = 1
+    shutter: float = 0.5
+    # 映像と音で共有する衝撃のタイミング (秒)
+    cues: list[float] = field(default_factory=list)
+    # comp を受け取り wav のパスを返す関数
+    audio: Callable[[Composition], str] | None = None
+    # レンダリング前にメインプロセスで一度だけ走らせる準備 (Blender のプレート生成等)
+    prepare: list[Callable[[Composition], None]] = field(default_factory=list)
+    name: str = "untitled"
+    build_dir: str = "build"
+
+    def __post_init__(self):
+        self.background = to_color(self.background)
+
+    @property
+    def timeline(self) -> Timeline:
+        return Timeline(self.bpm, self.beat_offset)
+
+    @property
+    def nframes(self) -> int:
+        return int(round(self.duration * self.fps))
+
+    def add(self, *scenes: Scene) -> Composition:
+        self.scenes.extend(scenes)
+        return self
+
+    def subframes(self, t: float) -> int:
+        mb = self.motion_blur
+        return max(1, int(mb(t) if callable(mb) else mb))
