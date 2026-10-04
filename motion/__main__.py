@@ -47,6 +47,10 @@ def main() -> None:
     pv.add_argument("--workers", type=int)
     pv.add_argument("--no-open", action="store_true")
 
+    an = sub.add_parser("analyze", help="曲の BPM・小節頭・強いオンセットを調べる")
+    an.add_argument("file")
+    an.add_argument("--bpm", type=float, help="テンポの目安 (倍・半分に誤検出するとき)")
+
     pl = sub.add_parser("patches", help="Surge XT のパッチを検索する")
     pl.add_argument("query", nargs="?", default="")
 
@@ -60,6 +64,14 @@ def main() -> None:
     if args.cmd == "preview":
         from .preview import serve
         serve(args.project, args.port, args.scale, args.blur, args.workers, not args.no_open)
+        return
+    if args.cmd == "analyze":
+        from .analysis import analyze
+        info = analyze(args.file, bpm_hint=args.bpm)
+        print(f"bpm        {info.bpm}")
+        print(f"duration   {info.duration}s")
+        print(f"downbeats  {info.downbeats[:8]}{' ...' if len(info.downbeats) > 8 else ''}")
+        print(f"strong     {info.onsets_strong[:8]}{' ...' if len(info.onsets_strong) > 8 else ''}")
         return
     if args.cmd == "patches":
         from .audio import SURGE_PATCH_DIRS, surge_patches
