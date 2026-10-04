@@ -9,30 +9,39 @@
 
 ```sh
 uv run python -m motion render projects/demo            # 1080p・音付きで build/demo/demo.mp4
-uv run python -m motion render projects/demo --draft    # 半解像度・ブラーなし・高速エンコード
+uv run python -m motion preview projects/demo           # ブラウザでシーク・再生 (保存で自動更新)
+uv run python -m motion render projects/demo --draft    # 半解像度・ブラーなし・HW エンコード
 uv run python -m motion render projects/demo --start 2 --end 4
 uv run python -m motion sheet projects/demo             # コンタクトシート (build/demo/sheet.png)
 uv run python -m motion still projects/demo 3.5         # 1 フレームの PNG
 uv run python -m motion audio projects/demo             # 音だけ
 uv run python -m motion patches pads/                   # Surge XT のパッチ検索
 uv run python -m motion audition pads/ -n 8             # 候補を同じ和音で順に鳴らした build/audition.wav
+uv run python -m motion analyze song.mp3                # 既存の曲の BPM・小節頭・強いオンセット
+uv run pytest                                           # テスト (描画を意図して変えたら UPDATE_GOLDEN=1 で基準画像を更新)
 ```
 
 | モジュール | 役割 |
 |---|---|
-| `scene` | `Composition` (解像度・fps・BPM・シーン・ポスト・カメラ・キュー・音)、`Scene` / `@scene(start, end)`、`Ctx` (t, lt, p, tl, W, H, CX, CY) |
+| `scene` | `Composition` (解像度・fps・BPM・シーン・ポスト・カメラ・キュー・音・`linear`)、`Scene` / `@scene(start, end)` (`fixed=True` でカメラ無視)、`Ctx` (t, lt, p, tl, W, H, CX, CY) |
+| `transition` | `Transition(a, b, at, dur, kind)` (cut / crossfade / push / wipe / iris / slices / zoom)、`mask` `matte` `montage` |
 | `timeline` | `beat(n)` `bar(n)` `step(n, div)` `beat_at(t)` `pulse(t)` |
 | `anim` / `easing` | `tween` `progress` `Keys` `spring` `stagger` `window` `impact`、各種イージングと `cubic_bezier` |
 | `draw` / `color` | 図形・パス・`trim`・`transform` / `layer` / `clip_rect`、`Color` `Palette` |
-| `text` | harfbuzz で組み、可変フォントの軸を指定して描く。`letters()` で 1 文字ずつ動かせる。フォントは `assets/fonts` (`sans` / `sans-mono` / `mono`) |
+| `text` | harfbuzz で組み、可変フォントの軸を指定して描く。`letters()` で 1 文字ずつ動かせる。日本語は `jp` (Noto Sans JP) に自動で切り替わる。`paragraph` / `layout` で禁則つきの折り返し。フォントは `assets/fonts` (`sans` / `sans-mono` / `mono` / `jp`) |
 | `noise` | `perlin3` `fbm3` `curl2` `noise1` `hash01` |
-| `post` | `bloom` `chroma` `grain` `vignette` `glitch` `scanlines` `flash` `grade`。引数に `lambda ctx: ...` を渡せる |
-| `audio` | `Mix`: `hit` (サンプル)、`tone` (内蔵シンセ)、`instrument` (Surge XT 等の VST3。`patch="Pads/MKS-70 Warm Pad"` でパッチ指定)、`fx` `duck`、`render` で LUFS を揃えて wav 出力 |
+| `post` | `bloom` `chroma` `grain` `vignette` `glitch` `scanlines` `flash` `grade`。引数に `lambda ctx: ...` を渡せる。光学系はリニア空間、演出系 (`fx.space = "display"`) は sRGB で処理される |
+| `media` | `Image` / `Video` (動画は `comp.prepare.append(clip.prepare)` で作品の fps にフレームを書き出す)、`fit="cover" / "contain"` |
+| `audio` | `Mix`: `hit` (サンプル)、`tone` (内蔵シンセ)、`instrument` (Surge XT 等の VST3。`patch="Pads/MKS-70 Warm Pad"` でパッチ指定)、`file` (音声・動画の音)、`sfx`、`fx` `duck`、`render` で LUFS を揃えて wav 出力 |
+| `sfx` | `whoosh` `riser` `impact` `click` `glitch` `reverse_swell`。`mx.sfx(sound, t)` で音の山を t に合わせる |
+| `analysis` | `analyze(path)` で BPM・拍・小節頭・オンセット。`info.timeline()` で Timeline にできる。小節頭がずれたら `shift_downbeats(n)` |
+| `cache` | `cached(comp, name, fn, *deps)` で重い前計算を build/<作品>/cache に保存し全ワーカーで共有 |
 | `blender` | `render_plate` で Blender をヘッドレス実行して連番 PNG を作る (入力が同じならキャッシュ)。`Plate` で時刻から引いて合成。初回だけ Metal カーネルのコンパイルに数分かかる |
 
-- 描画は `f(t)` で決定的に書く (乱数はシード固定か `noise.hash01`)。並列ワーカーがフレームをばらばらに描くため、フレーム間で状態を持ち越さない。シミュレーションは `Scene.setup` で一括して前計算する
+- 描画は `f(t)` で決定的に書く (乱数はシード固定か `noise.hash01`)。並列ワーカーがフレームをばらばらに描くため、フレーム間で状態を持ち越さない。シミュレーションは `Scene.setup` で `cache.cached` を使って前計算する
+- `draw.fill` は変換を無視してクリップ全体を塗る。シーンを動かす演出では、自分でフレーム枠にクリップする (トランジションはクリップ済み)
 - 映像と音で同じ `comp.cues` を使うと、カメラシェイク・フラッシュ・音のアタックが揃う
-- 仕上がりは `sheet` / `still` の画像を自分で見て確認してから、本番の `render` に進む
+- 調整は `preview` で行い、仕上がりは `sheet` / `still` の画像を自分で見て確認してから、本番の `render` に進む
 
 ## 参考資料
 
