@@ -47,6 +47,12 @@ def main() -> None:
     pv.add_argument("--workers", type=int)
     pv.add_argument("--no-open", action="store_true")
 
+    sc = sub.add_parser("scan", help="キャプチャから見せ場の候補とシーンの切れ目を探す")
+    sc.add_argument("file")
+    sc.add_argument("--top", type=int, default=6)
+    sc.add_argument("--length", type=float, default=3.0, help="候補区間の長さ (秒)")
+    sc.add_argument("-o", "--out", help="グラフと候補のサムネイルを並べた画像")
+
     an = sub.add_parser("analyze", help="曲の BPM・小節頭・強いオンセットを調べる")
     an.add_argument("file")
     an.add_argument("--bpm", type=float, help="テンポの目安 (倍・半分に誤検出するとき)")
@@ -64,6 +70,19 @@ def main() -> None:
     if args.cmd == "preview":
         from .preview import serve
         serve(args.project, args.port, args.scale, args.blur, args.workers, not args.no_open)
+        return
+    if args.cmd == "scan":
+        from pathlib import Path
+
+        from .scan import report, scan
+        res = scan(args.file)
+        moments = res.highlights(args.top, args.length)
+        print(f"duration {res.duration:.1f}s  cuts {len(res.cuts)}: {[round(c, 2) for c in res.cuts[:12]]}")
+        for i, m in enumerate(moments):
+            print(f"#{i + 1}  {m.start:7.2f} - {m.end:7.2f}s  score {m.score:.2f}  motion {m.motion:.2f}  "
+                  f"audio {m.loudness:.2f}")
+        out = args.out or f"build/scan/{Path(args.file).stem}.png"
+        print(f"-> {report(res, args.file, out, moments)}")
         return
     if args.cmd == "analyze":
         from .analysis import analyze

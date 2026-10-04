@@ -134,13 +134,25 @@ def render_video(project: str | Path, out: str | Path | None = None, *, scale: f
                  start: float | None = None, end: float | None = None, workers: int | None = None,
                  crf: int = 18, preset: str = "medium", motion_blur: bool = True, post: bool = True,
                  audio: bool = True, codec: str = "x264") -> Path:
-    """codec は "x264" (高画質・CPU) か "hw" (VideoToolbox・高速。下書き向け)。"""
+    """codec は "x264" (高画質・CPU) か "hw" (VideoToolbox・高速。下書き向け)。
+
+    out の拡張子が .webm なら VP9 + Opus、.gif ならいったん mp4 に書いてからパレットを作って変換する。
+    """
+    out_req = Path(out) if out else None
+    if out_req is not None and out_req.suffix.lower() == ".gif":
+        tmp = out_req.with_suffix(".gif.mp4")
+        render_video(project, tmp, scale=scale, start=start, end=end, workers=workers, crf=16, preset="fast",
+                     motion_blur=motion_blur, post=post, audio=False, codec=codec)
+        to_gif(tmp, out_req)
+        tmp.unlink(missing_ok=True)
+        return out_req
     comp = load_project(project)
     prepare(comp)
     frames = _frames(comp, start, end)
     w, h = max(int(round(comp.width * scale)), 1), max(int(round(comp.height * scale)), 1)
-    out = Path(out) if out else Path(comp.build_dir) / f"{comp.name}.mp4"
+    out = out_req or Path(comp.build_dir) / f"{comp.name}.mp4"
     out.parent.mkdir(parents=True, exist_ok=True)
+    webm = out.suffix.lower() == ".webm"
 
     wav = None
     if audio and comp.audio:
@@ -152,14 +164,18 @@ def render_video(project: str | Path, out: str | Path | None = None, *, scale: f
     if wav:
         cmd += ["-ss", f"{frames[0] / comp.fps:.6f}", "-i", str(wav)]
     # 奇数解像度だと yuv420p でエンコードできないため偶数に丸める
-    cmd += ["-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-pix_fmt", "yuv420p", "-movflags", "+faststart"]
-    if codec == "hw":
+    cmd += ["-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-pix_fmt", "yuv420p"]
+    if webm:
+        cmd += ["-c:v", "libvpx-vp9", "-crf", "32", "-b:v", "0", "-row-mt", "1", "-deadline", "good", "-cpu-used", "4"]
+    elif codec == "hw":
         # ハードウェアエンコーダは CPU をほぼ使わないので、レンダリングのワーカーに CPU を回せる
         cmd += ["-c:v", "h264_videotoolbox", "-b:v", f"{int(40 * scale * scale) + 4}M"]
     else:
         cmd += ["-c:v", "libx264", "-preset", preset, "-crf", str(crf)]
+    if not webm:
+        cmd += ["-movflags", "+faststart"]
     if wav:
-        cmd += ["-c:a", "aac", "-b:a", "320k", "-shortest"]
+        cmd += (["-c:a", "libopus", "-b:a", "160k"] if webm else ["-c:a", "aac", "-b:a", "320k"]) + ["-shortest"]
     cmd += [str(out)]
 
     ff = subprocess.Popen(cmd, stdin=subprocess.PIPE)
@@ -176,6 +192,16 @@ def render_video(project: str | Path, out: str | Path | None = None, *, scale: f
         raise RuntimeError("ffmpeg failed")
     print(f"\n-> {out}")
     return out
+
+
+def to_gif(src: str | Path, out: str | Path, fps: int = 30, width: int | None = None, colors: int = 192) -> Path:
+    """動画を GIF にする。パレットを動画全体から作ると、ゲーム画面の色がつぶれにくい。"""
+    vf = f"fps={fps}" + (f",scale={width}:-1:flags=lanczos" if width else "")
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(src), "-filter_complex",
+                    f"[0:v]{vf},split[a][b];[a]palettegen=max_colors={colors}:stats_mode=diff[p];"
+                    f"[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle", str(out)], check=True)
+    print(f"-> {out}")
+    return Path(out)
 
 
 def _label(img: np.ndarray, s: str) -> np.ndarray:
