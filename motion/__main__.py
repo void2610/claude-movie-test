@@ -1,5 +1,7 @@
 """uv run python -m motion <command> <project> [options]"""
 import argparse
+import json
+import os
 
 from .render import contact_sheet, load_project, prepare, render_video, still
 
@@ -15,7 +17,8 @@ def main() -> None:
     r.add_argument("--start", type=float)
     r.add_argument("--end", type=float)
     r.add_argument("--workers", type=int)
-    r.add_argument("--crf", type=int, default=18)
+    r.add_argument("--crf", type=int, default=20)
+    r.add_argument("--bitrate", type=float, help="映像の上限ビットレート (Mbps)。既定は 1080p60 で 16")
     r.add_argument("--draft", action="store_true", help="半分の解像度・ブラーなし・高速エンコード")
     r.add_argument("--no-audio", action="store_true")
     r.add_argument("--codec", choices=["x264", "hw"], help="既定は本番 x264、--draft 時は hw")
@@ -66,7 +69,19 @@ def main() -> None:
     au.add_argument("--notes", default="F3,G#3,C4")
     au.add_argument("-o", "--out", default="build/audition.wav")
 
+    for p_ in (r, s, st, a, pv):
+        p_.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
+                        help="build() に渡すパラメータ (例: --set aspect=9:16)")
     args = ap.parse_args()
+    if getattr(args, "set", None):
+        params = {}
+        for kv in args.set:
+            k, _, v = kv.partition("=")
+            try:
+                params[k] = json.loads(v)
+            except json.JSONDecodeError:
+                params[k] = v
+        os.environ["MOTION_PARAMS"] = json.dumps(params)
     if args.cmd == "preview":
         from .preview import serve
         serve(args.project, args.port, args.scale, args.blur, args.workers, not args.no_open)
@@ -114,7 +129,8 @@ def main() -> None:
                          audio=not args.no_audio, codec=args.codec or "hw")
         else:
             render_video(args.project, args.out, scale=args.scale, start=args.start, end=args.end,
-                         workers=args.workers, crf=args.crf, audio=not args.no_audio, codec=args.codec or "x264")
+                         workers=args.workers, crf=args.crf, audio=not args.no_audio, codec=args.codec or "x264",
+                         bitrate=args.bitrate)
     elif args.cmd == "sheet":
         contact_sheet(args.project, args.out, count=args.count, cols=args.cols, scale=args.scale,
                       start=args.start, end=args.end, workers=args.workers)

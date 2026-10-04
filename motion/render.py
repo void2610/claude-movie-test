@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import math
 import multiprocessing as mp
 import os
+import re
 import subprocess
 import sys
 import time
@@ -19,6 +21,12 @@ from .scene import Composition, Ctx, paint_scene
 cv2.setNumThreads(1)
 
 
+def project_params() -> dict:
+    """--set で渡された作品のパラメータ。並列ワーカーにも引き継がれるよう環境変数で受け渡す。"""
+    raw = os.environ.get("MOTION_PARAMS")
+    return json.loads(raw) if raw else {}
+
+
 def load_project(path: str | Path) -> Composition:
     """project.py (またはそれを含むディレクトリ) を読み込み、build() の結果を返す。"""
     p = Path(path).resolve()
@@ -29,9 +37,13 @@ def load_project(path: str | Path) -> Composition:
     spec = importlib.util.spec_from_file_location(f"motion_project_{p.parent.name}", p)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    comp: Composition = mod.build()
+    params = project_params()
+    comp: Composition = mod.build(**params) if params else mod.build()
     if comp.name == "untitled":
         comp.name = p.parent.name
+        # パラメータ違いの書き出し (縦長版など) が同じファイル名で上書きし合わないようにする
+        if params:
+            comp.name += "_" + "_".join(re.sub(r"[^\w.-]+", "x", str(v)) for v in params.values())
     if not Path(comp.build_dir).is_absolute():
         comp.build_dir = str(p.parent.parent.parent / comp.build_dir / comp.name)
     return comp
@@ -132,8 +144,8 @@ def _frames(comp: Composition, start: float | None, end: float | None, step: int
 
 def render_video(project: str | Path, out: str | Path | None = None, *, scale: float = 1.0,
                  start: float | None = None, end: float | None = None, workers: int | None = None,
-                 crf: int = 18, preset: str = "medium", motion_blur: bool = True, post: bool = True,
-                 audio: bool = True, codec: str = "x264") -> Path:
+                 crf: int = 20, preset: str = "medium", motion_blur: bool = True, post: bool = True,
+                 audio: bool = True, codec: str = "x264", bitrate: float | None = None) -> Path:
     """codec は "x264" (高画質・CPU) か "hw" (VideoToolbox・高速。下書き向け)。
 
     out の拡張子が .webm なら VP9 + Opus、.gif ならいったん mp4 に書いてからパレットを作って変換する。
@@ -165,13 +177,18 @@ def render_video(project: str | Path, out: str | Path | None = None, *, scale: f
         cmd += ["-ss", f"{frames[0] / comp.fps:.6f}", "-i", str(wav)]
     # 奇数解像度だと yuv420p でエンコードできないため偶数に丸める
     cmd += ["-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-pix_fmt", "yuv420p"]
+    # グレインは毎フレーム違うノイズなので、上限を設けないと 1080p60 で 100Mbps を超える。
+    # 16Mbps でも見た目はほぼ変わらないことを確認済み (Knowledge/motion-engine-design.md)
+    mbps = bitrate or max(2.0, 16.0 * (w * h * comp.fps) / (1920 * 1080 * 60))
     if webm:
-        cmd += ["-c:v", "libvpx-vp9", "-crf", "32", "-b:v", "0", "-row-mt", "1", "-deadline", "good", "-cpu-used", "4"]
+        cmd += ["-c:v", "libvpx-vp9", "-crf", "32", "-b:v", f"{mbps:.1f}M", "-row-mt", "1", "-deadline", "good",
+                "-cpu-used", "4"]
     elif codec == "hw":
         # ハードウェアエンコーダは CPU をほぼ使わないので、レンダリングのワーカーに CPU を回せる
-        cmd += ["-c:v", "h264_videotoolbox", "-b:v", f"{int(40 * scale * scale) + 4}M"]
+        cmd += ["-c:v", "h264_videotoolbox", "-b:v", f"{mbps:.1f}M"]
     else:
-        cmd += ["-c:v", "libx264", "-preset", preset, "-crf", str(crf)]
+        cmd += ["-c:v", "libx264", "-preset", preset, "-crf", str(crf), "-maxrate", f"{mbps:.1f}M",
+                "-bufsize", f"{mbps * 2:.1f}M"]
     if not webm:
         cmd += ["-movflags", "+faststart"]
     if wav:
@@ -194,12 +211,15 @@ def render_video(project: str | Path, out: str | Path | None = None, *, scale: f
     return out
 
 
-def to_gif(src: str | Path, out: str | Path, fps: int = 30, width: int | None = None, colors: int = 192) -> Path:
-    """動画を GIF にする。パレットを動画全体から作ると、ゲーム画面の色がつぶれにくい。"""
-    vf = f"fps={fps}" + (f",scale={width}:-1:flags=lanczos" if width else "")
+def to_gif(src: str | Path, out: str | Path, fps: int = 20, width: int = 720, colors: int = 128) -> Path:
+    """動画を GIF にする。既定 (幅 720・20fps・128 色) で 5 秒あたり約 7MB。
+
+    容量はディザの方式よりも幅と fps で決まる。グレインは圧縮を大きく損なうので変換前にノイズを取る。
+    """
+    vf = f"hqdn3d=6:4:8:6,fps={fps},scale='min({width},iw)':-1:flags=lanczos"
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(src), "-filter_complex",
                     f"[0:v]{vf},split[a][b];[a]palettegen=max_colors={colors}:stats_mode=diff[p];"
-                    f"[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle", str(out)], check=True)
+                    f"[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle", str(out)], check=True)
     print(f"-> {out}")
     return Path(out)
 
