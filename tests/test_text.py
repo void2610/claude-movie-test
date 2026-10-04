@@ -28,3 +28,19 @@ def test_letters_and_tracking():
 def test_non_variable_font_loads():
     sh = text.shape("12:34", "mono", 20)
     assert len(sh.glyphs) == 5 and sh.width > 0
+
+
+def test_japanese_falls_back_to_jp_font():
+    sh = text.shape("Motion 動画", "sans", 50)
+    jp = text.get_font("jp")
+    assert all(g != 0 for g in sh.glyphs)
+    assert sh.fonts[0] is text.get_font("sans") and sh.fonts[-1] is jp
+
+
+def test_layout_wraps_and_applies_kinsoku():
+    s = "あいうえおかきくけこ。さしすせそ"
+    lines = text.layout(s, 200, size=40)
+    assert len(lines) > 1
+    assert all(ln.shaped.width <= 200 + 1e-6 for ln in lines)
+    assert not any(ln.shaped.text.startswith("。") for ln in lines)
+    assert "".join(ln.shaped.text for ln in lines) == s
