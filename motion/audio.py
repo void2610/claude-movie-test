@@ -296,6 +296,10 @@ class Mix:
         if m > 0:
             self.bus(bus)[:, i0:i0 + m] += buf[:, j0:j0 + m]
 
+    def sfx(self, sound, t: float, gain_db: float = 0.0, pan: float = 0.0, bus: str = "sfx") -> None:
+        """sfx.Sound を、山 (peak) がちょうど時刻 t に来るように置く。"""
+        self.place(sound.buf, t - sound.peak, gain_db, pan, bus)
+
     def file(self, path: str | Path, t: float = 0.0, offset: float = 0.0, length: float | None = None,
              gain_db: float = 0.0, pan: float = 0.0, bus: str = "media") -> None:
         """音声ファイルや動画の音を、元の offset 秒から時刻 t に配置する。"""
