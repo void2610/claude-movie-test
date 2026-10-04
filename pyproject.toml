@@ -4,6 +4,8 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.5.3",
+    "opencv-python>=5.0.0.93",
     "pedalboard>=0.9.25",
     "skia-python>=144.0.post2",
+    "uharfbuzz>=0.56.2",
 ]
