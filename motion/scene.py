@@ -91,7 +91,13 @@ class Scene:
 
     def active(self, t: float, comp: Composition) -> bool:
         s, e = self.span(comp)
-        return s <= t < e
+        return s <= t < e and not any(a <= t < b for a, b in getattr(self, "hidden", ()))
+
+    def hide(self, start: float, end: float) -> None:
+        """この区間はレンダラから直接は描かない (トランジションが代わりに描く)。"""
+        if not hasattr(self, "hidden"):
+            self.hidden = []
+        self.hidden.append((start, end))
 
     def ensure_setup(self, comp: Composition) -> None:
         if not self._ready:
@@ -120,6 +126,21 @@ def scene(start: float = 0.0, end: float | None = None, z: int = 0, alpha: Calla
     def deco(fn: Callable[[skia.Canvas, Ctx], None]) -> FnScene:
         return FnScene(fn, start, end, z, alpha, fixed)
     return deco
+
+
+def paint_scene(c: skia.Canvas, s: Scene, t: float, frame: float, comp: Composition) -> None:
+    """シーン 1 つを時刻 t で描く (不透明度を含む)。カメラはかけない。"""
+    s.ensure_setup(comp)
+    st, en = s.span(comp)
+    ctx = Ctx(t, frame, comp, st, en)
+    a = s.alpha(ctx)
+    if a <= 0.0:
+        return
+    if a < 1.0:
+        c.saveLayerAlpha(None, int(round(a * 255)))
+    s.draw(c, ctx)
+    if a < 1.0:
+        c.restore()
 
 
 PostFx = Callable[[Any, Ctx], Any]

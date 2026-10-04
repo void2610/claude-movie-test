@@ -14,7 +14,7 @@ import numpy as np
 import skia
 
 from . import colorspace
-from .scene import Composition, Ctx
+from .scene import Composition, Ctx, paint_scene
 
 cv2.setNumThreads(1)
 
@@ -66,20 +66,11 @@ class FrameRenderer:
         for s in self.scenes:
             if not s.active(t, comp):
                 continue
-            s.ensure_setup(comp)
-            st, en = s.span(comp)
-            ctx = Ctx(t, frame, comp, st, en)
-            a = s.alpha(ctx)
-            if a <= 0.0:
-                continue
             c.save()
             if comp.camera and not s.fixed:
-                comp.camera(c, ctx)
-            if a < 1.0:
-                c.saveLayerAlpha(None, int(round(a * 255)))
-            s.draw(c, ctx)
-            if a < 1.0:
-                c.restore()
+                st, en = s.span(comp)
+                comp.camera(c, Ctx(t, frame, comp, st, en))
+            paint_scene(c, s, t, frame, comp)
             c.restore()
         c.restore()
         return self.surface.makeImageSnapshot().toarray(colorType=skia.kRGBA_8888_ColorType)
