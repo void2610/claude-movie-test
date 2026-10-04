@@ -39,6 +39,14 @@ def main() -> None:
     a = sub.add_parser("audio", help="音声だけを書き出す")
     a.add_argument("project")
 
+    pv = sub.add_parser("preview", help="ブラウザでシーク・再生できるプレビュー (保存で自動更新)")
+    pv.add_argument("project")
+    pv.add_argument("--port", type=int, default=8765)
+    pv.add_argument("--scale", type=float, default=0.5)
+    pv.add_argument("--blur", action="store_true", help="モーションブラーも有効にする")
+    pv.add_argument("--workers", type=int)
+    pv.add_argument("--no-open", action="store_true")
+
     pl = sub.add_parser("patches", help="Surge XT のパッチを検索する")
     pl.add_argument("query", nargs="?", default="")
 
@@ -49,6 +57,10 @@ def main() -> None:
     au.add_argument("-o", "--out", default="build/audition.wav")
 
     args = ap.parse_args()
+    if args.cmd == "preview":
+        from .preview import serve
+        serve(args.project, args.port, args.scale, args.blur, args.workers, not args.no_open)
+        return
     if args.cmd == "patches":
         from .audio import SURGE_PATCH_DIRS, surge_patches
         for p in surge_patches(args.query):
