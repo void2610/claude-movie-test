@@ -67,8 +67,11 @@ class Sequence(Scene):
 def compare(c: skia.Canvas, ctx: Ctx, left: Callable[[skia.Canvas], None], right: Callable[[skia.Canvas], None],
             split: float, *, labels: tuple[str, str] | None = ("BEFORE", "AFTER"), color: str = "#FFFFFF",
             accent: str = "#FACC15", x: float = 0.0, y: float = 0.0, w: float | None = None,
-            h: float | None = None) -> None:
-    """左右比較スライダー。split (0〜1) の位置で left と right を切り替えて見せる。"""
+            h: float | None = None, label_y: float = 36.0) -> None:
+    """左右比較スライダー。split (0〜1) の位置で left と right を切り替えて見せる。
+
+    label_y は枠の上端からラベルまでの距離。ゲームの HUD と重なるときに下げる。
+    """
     w = ctx.W if w is None else w
     h = ctx.H if h is None else h
     sx = x + w * clamp(split)
@@ -99,8 +102,9 @@ def compare(c: skia.Canvas, ctx: Ctx, left: Callable[[skia.Canvas], None], right
             if not vis:
                 continue
             bg = skia.Paint(AntiAlias=True, Color=skia.Color(10, 10, 14, 200))
-            c.drawRRect(skia.RRect.MakeRectXY(skia.Rect.MakeXYWH(lx, y + 36, sh.width + 28, 46), 8, 8), bg)
-            text(c, lab, lx + 14, y + 59, font="mono", size=26, color=accent if i == 1 else color, valign="cap")
+            c.drawRRect(skia.RRect.MakeRectXY(skia.Rect.MakeXYWH(lx, y + label_y, sh.width + 28, 46), 8, 8), bg)
+            text(c, lab, lx + 14, y + label_y + 23, font="mono", size=26, color=accent if i == 1 else color,
+                 valign="cap")
 
 
 def blur_fill(c: skia.Canvas, ctx: Ctx, clip: Clip, *, blur: float = 40.0, dim: float = 0.45,
