@@ -196,7 +196,7 @@ def build() -> Composition:
     def code_box_rect(t):
         k = progress(t, T_DIAG, T_DIAG + 0.6, easing.inout_expo)
         x0, y0, w0 = (W - CODE_W) / 2, H / 2 - 40, CODE_W
-        x1, y1, w1 = 1010, 560, 830
+        x1, y1, w1 = 1060, 560, 790
         return lerp(x0, x1, k), lerp(y0, y1, k), lerp(w0, w1, k), k
 
     LEFT = [("Human", "GUI", pal.dim), ("AI Agent", "HTTP API", pal.blue_hi), ("Test", "C# API", pal.dim)]
@@ -291,7 +291,8 @@ def build() -> Composition:
                       alpha=progress(ctx.t, T_DIAG + 0.5, T_DIAG + 1.0, easing.out_expo))
             bx, by, bw, _ = code_box_rect(ctx.t)
             target = (bx, by + CODE_H / 2)
-            hub_x = 1010 - 120
+            # 合流点はチップ (最大幅の HTTP API) より右に置く
+            hub_x = 1010
             for i in range(3):
                 a = progress(ctx.t, 10.0 + i * 0.5, 10.3 + i * 0.5, easing.out_expo)
                 if a <= 0:
