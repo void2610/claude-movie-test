@@ -2,7 +2,7 @@
 
 各関数はエフェクト `fx(img, ctx) -> img` を返す。数値の引数には ctx を受け取る関数も渡せる。
 ピクセル単位の量は 1080p 基準で指定し、解像度に合わせて自動で拡縮する。
-光学系 (bloom・色収差・フラッシュ等) はリニア空間、見た目の質感 (グレイン・スキャンライン・グレード) は
+光学系 (bloom・色収差等) はリニア空間、見た目の演出 (フラッシュ・グレイン・スキャンライン・グレード) は
 sRGB に戻した後の表示空間で処理される (fx.space で区別)。
 """
 from __future__ import annotations
@@ -159,7 +159,8 @@ def flash(color=(1.0, 1.0, 1.0), decay=18.0, peak=0.6):
         if e < 0.003:
             return img
         return img + (col - img) * e
-    return fx
+    # リニア空間で白を足すと暗部が大きく持ち上がって灰色に濁るため、表示空間で重ねる
+    return _display(fx)
 
 
 def grade(lift=0.0, gamma=1.0, gain=1.0, saturation=1.0):
