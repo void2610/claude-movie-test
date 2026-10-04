@@ -10,3 +10,12 @@ dependencies = [
     "skia-python>=144.0.post2",
     "uharfbuzz>=0.56.2",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
