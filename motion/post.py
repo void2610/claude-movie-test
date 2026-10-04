@@ -2,6 +2,8 @@
 
 各関数はエフェクト `fx(img, ctx) -> img` を返す。数値の引数には ctx を受け取る関数も渡せる。
 ピクセル単位の量は 1080p 基準で指定し、解像度に合わせて自動で拡縮する。
+光学系 (bloom・色収差・フラッシュ等) はリニア空間、見た目の質感 (グレイン・スキャンライン・グレード) は
+sRGB に戻した後の表示空間で処理される (fx.space で区別)。
 """
 from __future__ import annotations
 
@@ -19,6 +21,11 @@ def _v(x, ctx):
 
 def _k(img) -> float:
     return img.shape[0] / 1080.0
+
+
+def _display(fx):
+    fx.space = "display"
+    return fx
 
 
 def bloom(threshold=0.75, strength=0.6, radius=24.0, knee=0.15):
@@ -81,7 +88,7 @@ def grain(amount=0.035, size=1.0, seed=0):
         # 暗部ほど粒子を強く見せるとフィルムらしくなる
         luma = img.mean(axis=2, keepdims=True)
         return img + n[..., None] * a * (1.2 - luma)
-    return fx
+    return _display(fx)
 
 
 def vignette(strength=0.35, softness=0.6):
@@ -130,7 +137,7 @@ def scanlines(strength=0.06, period=3.0):
         y = np.arange(h, dtype=np.float32)
         m = 1 - s * (0.5 + 0.5 * np.cos(2 * np.pi * y / (period * _k(img))))
         return img * m[:, None, None]
-    return fx
+    return _display(fx)
 
 
 def flash(color=(1.0, 1.0, 1.0), decay=18.0, peak=0.6):
@@ -156,4 +163,4 @@ def grade(lift=0.0, gamma=1.0, gain=1.0, saturation=1.0):
             luma = out.mean(axis=2, keepdims=True)
             out = luma + (out - luma) * s
         return out
-    return fx
+    return _display(fx)

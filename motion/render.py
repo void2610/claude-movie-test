@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 import skia
 
+from . import colorspace
 from .scene import Composition, Ctx
 
 cv2.setNumThreads(1)
@@ -81,22 +82,32 @@ class FrameRenderer:
         return self.surface.makeImageSnapshot().toarray(colorType=skia.kRGBA_8888_ColorType)
 
     def frame(self, f: int) -> np.ndarray:
-        """f 番目のフレームを RGB uint8 (H, W, 3) で返す。"""
+        """f 番目のフレームを RGB uint8 (H, W, 3) で返す。
+
+        comp.linear が True なら、サブフレームの平均と space="linear" のポスト処理をリニア空間で行い、
+        sRGB に戻してから space="display" のポスト処理 (グレイン等) をかける。
+        """
         comp = self.comp
         t = f / comp.fps
         n = comp.subframes(t) if self.mb else 1
+        decode = colorspace.SRGB_TO_LINEAR if comp.linear else colorspace.IDENTITY
         if n == 1:
-            rgb = self.draw(t, f)[..., :3].astype(np.float32) / 255.0
+            rgb = decode[self.draw(t, f)[..., :3]]
         else:
             acc = np.zeros((self.h, self.w, 3), np.float32)
             span = comp.shutter / comp.fps
             for i in range(n):
                 dt = ((i + 0.5) / n - 0.5) * span
-                acc += self.draw(t + dt, f + dt * comp.fps)[..., :3]
-            rgb = acc / (255.0 * n)
-        if self.use_post and comp.post:
-            ctx = Ctx(t, f, comp, 0.0, comp.duration)
-            for fx in comp.post:
+                acc += decode[self.draw(t + dt, f + dt * comp.fps)[..., :3]]
+            rgb = acc / n
+        fxs = comp.post if self.use_post else []
+        ctx = Ctx(t, f, comp, 0.0, comp.duration)
+        for fx in fxs:
+            if getattr(fx, "space", "linear") == "linear":
+                rgb = fx(rgb, ctx)
+        rgb = colorspace.encode(rgb) if comp.linear else rgb
+        for fx in fxs:
+            if getattr(fx, "space", "linear") == "display":
                 rgb = fx(rgb, ctx)
         return (np.clip(rgb, 0, 1) * 255 + 0.5).astype(np.uint8)
 

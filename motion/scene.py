@@ -141,6 +141,8 @@ class Composition:
     # モーションブラーのサブフレーム数。時刻ごとに変えたい場合は関数を渡す
     motion_blur: int | Callable[[float], int] = 1
     shutter: float = 0.5
+    # サブフレームの平均と光学系のポスト処理をリニア空間で行う (明るい物のブラーや bloom が濁らない)
+    linear: bool = True
     # 映像と音で共有する衝撃のタイミング (秒)
     cues: list[float] = field(default_factory=list)
     # comp を受け取り wav のパスを返す関数
