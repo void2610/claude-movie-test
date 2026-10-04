@@ -190,17 +190,29 @@ def make_audio(comp: Composition) -> str:
         mx.hit("808hc", tl.step(k, 2), i=0, gain_db=-16 + (3 if k % 2 else 0), pan=-0.25)
     for t in comp.cues:
         mx.hit("808cy", t, i=0, gain_db=-14, pan=0.3)
-    # ベースラインは小節ごとにルートを変える
-    roots = ["F1", "F1", "D#1", "C#1"]
-    for i in range(16):
-        r = roots[i // 4]
-        mx.tone(tl.step(i * 2 + 1, 2), tl.beat_len * 0.4, r, wave="saw", gain_db=-14, bus="bass", voices=2)
-    mx.fx("bass", pb.LowpassFilter(cutoff_frequency_hz=420), pb.Distortion(drive_db=6))
+    # Fm の i - iv - VII - VI。ベースは小節ごとにルートを変えて 8 分の裏で刻む
+    roots = ["F1", "A#1", "D#1", "C#1"]
     chords = [["F3", "G#3", "C4"], ["F3", "A#3", "C#4"], ["D#3", "G3", "A#3"], ["C#3", "F3", "G#3"]]
-    notes = [(tl.bar(i), tl.bar_len * 0.95, n, 70) for i, ch in enumerate(chords) for n in ch]
-    mx.instrument(notes, bus="pad", gain_db=-10)
-    mx.fx("pad", pb.LowpassFilter(cutoff_frequency_hz=1800), pb.Reverb(room_size=0.7, wet_level=0.35))
+    bass = [(tl.step(i * 2 + 1, 2), tl.beat_len * 0.42, roots[i // 4], 110) for i in range(16)]
+    mx.instrument(bass, patch="Basses/Bass 1", bus="bass", gain_db=5)
+    mx.fx("bass", pb.HighpassFilter(cutoff_frequency_hz=35), pb.LowpassFilter(cutoff_frequency_hz=900))
+
+    pad = [(tl.bar(i), tl.bar_len * 0.98, n, 80) for i, ch in enumerate(chords) for n in ch]
+    mx.instrument(pad, patch="Pads/MKS-70 Warm Pad", bus="pad", gain_db=-5)
+    mx.fx("pad", pb.HighpassFilter(cutoff_frequency_hz=180), pb.Reverb(room_size=0.75, wet_level=0.3))
+
+    # 2 小節目から和音を 1 オクターブ上で 16 分アルペジオにする
+    arp = []
+    for k in range(16, 64):
+        ch = chords[k // 16]
+        n = audio.midi(ch[[0, 1, 2, 1][k % 4]]) + 12 + (12 if k % 8 >= 4 else 0)
+        arp.append((tl.step(k, 4), tl.beat_len / 4 * 0.8, n, 110 if k % 4 == 0 else 80))
+    mx.instrument(arp, patch="Plucks/Clean", bus="arp", gain_db=-12)
+    mx.fx("arp", pb.HighpassFilter(cutoff_frequency_hz=300), pb.Delay(delay_seconds=tl.beat_len * 0.75,
+          feedback=0.3, mix=0.25), pb.Reverb(room_size=0.5, wet_level=0.2))
+
     mx.duck("pad", beats, -10)
+    mx.duck("arp", beats, -4)
     mx.duck("bass", beats, -6, 0.12)
     mx.fx("drums", pb.Compressor(threshold_db=-14, ratio=3), pb.Reverb(room_size=0.2, wet_level=0.08))
     return mx.render(f"{comp.build_dir}/audio.wav", lufs=-14)
