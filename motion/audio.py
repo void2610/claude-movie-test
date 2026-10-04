@@ -306,6 +306,34 @@ class Mix:
         buf = load_any(path, self.sr)
         self.place(buf[:, int(offset * self.sr):], t, gain_db, pan, bus, length=length)
 
+    def clip(self, clip, gain_db: float = 0.0, pan: float = 0.0, bus: str = "game", fade: float = 0.02,
+             mute_holds: bool = True) -> None:
+        """footage.Clip の音を、速度変化・逆再生・ジャンプカットに合わせて配置する。
+
+        速度に合わせて音程も変わる (テープを速回し・遅回しした音になる)。フリーズ中は無音にする。
+        """
+        src = load_any(clip.footage.path, self.sr)
+        n = int(clip.duration * self.sr)
+        if n <= 0:
+            return
+        u = np.arange(n) / self.sr
+        grid = np.linspace(0.0, clip.duration, max(int(clip.duration * 480), 2))
+        s = np.array([clip.time(g) for g in grid]) + clip.src_in
+        pos = np.interp(u, grid, s) * self.sr
+        idx = np.arange(src.shape[1])
+        out = np.vstack([np.interp(pos, idx, ch, left=0.0, right=0.0) for ch in src]).astype(np.float32)
+        gain = np.ones(n, np.float32)
+        if mute_holds:
+            speed = np.abs(np.gradient(np.interp(u, grid, s), u))
+            gain = np.clip((speed - 0.05) / 0.1, 0, 1).astype(np.float32)
+            k = max(int(0.01 * self.sr), 1)
+            gain = np.convolve(gain, np.ones(k) / k, mode="same").astype(np.float32)
+        f = min(int(fade * self.sr), n // 2)
+        if f > 0:
+            gain[:f] *= np.linspace(0, 1, f, dtype=np.float32)
+            gain[-f:] *= np.linspace(1, 0, f, dtype=np.float32)
+        self.place(out * gain, clip.at, gain_db, pan, bus)
+
     def hit(self, name: str, t: float, i: int = 0, gain_db: float = 0.0, pan: float = 0.0, bus: str = "drums",
             rate: float = 1.0, length: float | None = None) -> None:
         """サンプル (Dirt-Samples のフォルダ名かファイルパス) を鳴らす。"""
