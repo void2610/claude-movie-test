@@ -293,7 +293,8 @@ def build() -> Composition:
             target = (bx, by + CODE_H / 2)
             # 合流点はチップ (最大幅の HTTP API) より右に置く
             hub_x = 1010
-            for i in range(3):
+            # 灰色の線と共有する合流点〜矢印の区間を上書きされないよう、青い HTTP API の線を最後に描く
+            for i in (0, 2, 1):
                 a = progress(ctx.t, 10.0 + i * 0.5, 10.3 + i * 0.5, easing.out_expo)
                 if a <= 0:
                     continue
