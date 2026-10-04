@@ -66,10 +66,10 @@ def _frame(c: skia.Canvas, ctx: Ctx) -> None:
 
 
 def crossfade(c, a: Draw, b: Draw, p: float, ctx: Ctx) -> None:
-    a(c)
-    c.saveLayerAlpha(None, int(round(clamp(p) * 255)))
-    b(c)
-    c.restore()
+    for fn, alpha in ((a, 1 - p), (b, p)):
+        c.saveLayerAlpha(None, int(round(clamp(alpha) * 255)))
+        fn(c)
+        c.restore()
 
 
 def push(c, a: Draw, b: Draw, p: float, ctx: Ctx, direction: str = "left") -> None:
@@ -85,8 +85,10 @@ def push(c, a: Draw, b: Draw, p: float, ctx: Ctx, direction: str = "left") -> No
 def wipe(c, a: Draw, b: Draw, p: float, ctx: Ctx, angle: float = 0.0, edge: float = 0.0,
          edge_color: str = "#FF5A1F") -> None:
     """b が angle 度の方向から a を押しのけて現れる。edge > 0 で境界に色の帯を付ける。"""
-    a(c)
-    with mask(c, _half_plane(ctx.W, ctx.H, p, angle)):
+    region = _half_plane(ctx.W, ctx.H, p, angle)
+    with mask(c, region, invert=True):
+        a(c)
+    with mask(c, region):
         b(c)
     if edge > 0 and 0 < p < 1:
         rad = math.radians(angle)
@@ -99,12 +101,13 @@ def wipe(c, a: Draw, b: Draw, p: float, ctx: Ctx, angle: float = 0.0, edge: floa
 
 
 def iris(c, a: Draw, b: Draw, p: float, ctx: Ctx, cx: float | None = None, cy: float | None = None) -> None:
-    a(c)
     cx = ctx.CX if cx is None else cx
     cy = ctx.CY if cy is None else cy
     r = math.hypot(max(cx, ctx.W - cx), max(cy, ctx.H - cy)) * p
     path = skia.Path()
     path.addCircle(cx, cy, max(r, 0.01))
+    with mask(c, path, invert=True):
+        a(c)
     with mask(c, path):
         b(c)
 
@@ -112,19 +115,36 @@ def iris(c, a: Draw, b: Draw, p: float, ctx: Ctx, cx: float | None = None, cy: f
 def slices(c, a: Draw, b: Draw, p: float, ctx: Ctx, n: int = 8, vertical: bool = False, spread: float = 0.6,
            ease=easing.inout_expo) -> None:
     """n 本の帯が少しずつずれながら b を運んでくる。"""
-    a(c)
     span = ctx.W if vertical else ctx.H
     size = span / n
+    strips = []
     for i in range(n):
         s0, s1 = stagger(i, n, 0.0, 1.0, 1.0 - spread)
         q = ease(clamp((p - s0) / (s1 - s0)))
-        if q <= 0:
-            continue
         rect = skia.Rect.MakeXYWH(i * size, 0, size + 0.5, ctx.H) if vertical else \
             skia.Rect.MakeXYWH(0, i * size, ctx.W, size + 0.5)
+        off = (1 - q) * (ctx.H if vertical else ctx.W) * (1 if i % 2 else -1)
+        strips.append((i, q, rect, off))
+    # a は、b の帯がすでに覆った部分を除いて描く
+    c.save()
+    for i, q, rect, off in strips:
+        if q <= 0:
+            continue
+        cover = skia.Rect(rect.left(), rect.top(), rect.right(), rect.bottom())
+        if vertical:
+            cover = skia.Rect.MakeLTRB(rect.left(), max(rect.top(), off), rect.right(),
+                                       min(rect.bottom(), off + ctx.H))
+        else:
+            cover = skia.Rect.MakeLTRB(max(rect.left(), off), rect.top(), min(rect.right(), off + ctx.W),
+                                       rect.bottom())
+        c.clipRect(cover, skia.ClipOp.kDifference, True)
+    a(c)
+    c.restore()
+    for i, q, rect, off in strips:
+        if q <= 0:
+            continue
         c.save()
         c.clipRect(rect, skia.ClipOp.kIntersect, True)
-        off = (1 - q) * (ctx.H if vertical else ctx.W) * (1 if i % 2 else -1)
         c.translate(0, off) if vertical else c.translate(off, 0)
         _frame(c, ctx)
         b(c)
