@@ -6,6 +6,7 @@ dependencies = [
     "numpy>=2.5.3",
     "opencv-python>=5.0.0.93",
     "pedalboard>=0.9.25",
+    "pyloudnorm>=0.2.0",
     "skia-python>=144.0.post2",
     "uharfbuzz>=0.56.2",
 ]
