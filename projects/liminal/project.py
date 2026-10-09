@@ -6,6 +6,7 @@ import skia
 
 from motion import Composition, Scene, audio, draw, easing, noise, post, scene, sfx, text
 from motion.anim import clamp, impact, lerp, progress, spring, stagger, tween, window
+from motion.checks import Waiver
 from motion.transition import Transition
 
 from ui import (MONO, background, caret, checkmark, chip, colored_line, fuzzy, keycap, logo_mark, pal, panel,
@@ -515,6 +516,10 @@ def build() -> Composition:
         c.translate(-ctx.CX, -ctx.CY)
 
     comp.camera = camera
+    # 画面全体が速く動くトランジションの間だけ増やす。push の最高速は約 96px/フレームで、段差を 2px 以下にするには 24 枚以上要る
+    xfades = [(5.75, 6.25), (13.75, 14.25), (15.75, 16.25), (17.75, 18.25), (19.75, 20.25)]
+    comp.motion_blur = lambda t: 32 if any(a <= t < b for a, b in xfades) else 4
+    comp.waivers.append(Waiver("edge-clip", "push トランジションで画面ごと左へ送り出している", (13.75, 14.25)))
     comp.add(
         bg, intro, palette, code, cli, scenario, features, logo,
         Transition(palette, code, 5.75, 0.5, "zoom", amount=0.25),
