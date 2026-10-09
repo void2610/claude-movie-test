@@ -148,6 +148,75 @@ def measure(project, comp, shots: ShotList, scale: float = 0.08, wav: str | None
     return Metrics(rest_ratio, contrast, pops, pace, changes, sync, edge, loop_diff)
 
 
+@dataclass
+class ReviewResult:
+    png: Path
+    md: Path
+    errors: list
+
+
+def _find(comp, full: dict[int, np.ndarray], check_frames: dict[int, float], m: Metrics, fps: int) -> list:
+    from .checks import Finding, edge_clips
+    from .scene import Ctx
+    out = []
+
+    def waive(rule, t, side=None):
+        for w in comp.waivers:
+            if w.rule == rule and w.times[0] <= t <= w.times[1] and (side is None or side in w.sides):
+                return w.reason
+        return None
+
+    for f, img in sorted(full.items()):
+        t = f / fps
+        for side, start, length in edge_clips(img):
+            h, w = img.shape[:2]
+            if side in ("left", "right"):
+                x = 0 if side == "left" else w - 300
+                crop = (x, max(start - 60, 0), 300, min(length + 120, 300))
+            else:
+                y0 = 0 if side == "top" else h - 160
+                crop = (max(start - 40, 0), y0, min(length + 80, 420), 160)
+            out.append(Finding("edge-clip", t, f"{side} の縁で要素が切れている ({length}px)", crop,
+                               waive("edge-clip", t, side)))
+    for chk in comp.checks:
+        for t in chk.times:
+            f = min(max(int(round(t * fps)), 0), comp.nframes - 1)
+            msg = chk.fn(full[f], Ctx(t, f, comp, 0.0, comp.duration))
+            if msg:
+                out.append(Finding(f"check: {chk.name}", t, msg, None, waive(f"check: {chk.name}", t)))
+    for t in m.pops:
+        out.append(Finding("pop", t, "1 フレームだけ前後と違う", None, waive("pop", t)))
+    if m.loop_diff is not None and m.loop_diff >= 3:
+        out.append(Finding("loop", 0.0, f"最初と最後のコマの差が {m.loop_diff:.1f}", None, waive("loop", 0.0)))
+    # 同じ縁の切れが連続するコマで出るので、規則と辺ごとに最初の 1 件だけ残す
+    seen, uniq = set(), []
+    for fd in out:
+        key = (fd.rule, fd.detail.split(" ")[0])
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(fd)
+    return uniq
+
+
+def _detail_regions(img: np.ndarray, size: int, n: int) -> list[tuple[int, int]]:
+    """エッジ (文字・線) が最も多い size 四方の領域を、重ならないように n 個選ぶ。"""
+    import cv2
+    g = cv2.Canny(cv2.cvtColor(img, cv2.COLOR_RGB2GRAY), 60, 160)
+    h, w = g.shape
+    cands = []
+    for y in range(0, max(h - size, 0) + 1, size // 2):
+        for x in range(0, max(w - size, 0) + 1, size // 2):
+            cands.append((int(g[y:y + size, x:x + size].sum()), x, y))
+    picked: list[tuple[int, int]] = []
+    for _, x, y in sorted(cands, reverse=True):
+        if all(abs(x - px) >= size or abs(y - py) >= size for px, py in picked):
+            picked.append((x, y))
+        if len(picked) >= n:
+            break
+    return picked
+
+
 class _Sheet:
     def __init__(self, w: int, h: int):
         self.surface = skia.Surface(w, h)
@@ -185,6 +254,14 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
 
     shot_frames = {s.name: [f_of(s.start + min(0.15, s.dur * 0.1)), f_of(s.at(0.5)),
                             f_of(s.end - min(0.15, s.dur * 0.1))] for s in shots}
+
+    # 縮小画像では細い線の色や文字の欠けが見えないので、検査は等倍で行う
+    check_frames = {f_of(t): t for chk in comp.checks for t in chk.times}
+    scan_frames = sorted(set([f for v in shot_frames.values() for f in v] + list(range(0, comp.nframes, int(fps / 4)))
+                             + list(check_frames)))
+    print(f"review: checking {len(scan_frames)} frames at full size...", flush=True)
+    full = _render(project, scan_frames, 1.0, workers)
+    findings = _find(comp, full, check_frames, m, fps)
     offs = [-0.25, -0.1, -0.034, 0.0, 0.034, 0.1, 0.25]
     cut_frames = {c: [f_of(c + o) for o in offs] for c in shots.cuts}
     want = [f for v in shot_frames.values() for f in v] + [f for v in cut_frames.values() for f in v]
@@ -198,7 +275,11 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     W = max(3 * (tw + 12) + 380, 7 * (int(tw * 0.55) + 6) + 40, 1400)
     row_h = th + 50
     cut_h = int(th * 0.55) + 44
-    H = 120 + len(shots) * row_h + len(cut_frames) * cut_h + 260 + max(i.shape[0] for i in phone.values()) + 120
+    errors = [fd for fd in findings if fd.waived is None]
+    err_h = (len(errors) * 250 + 60) if errors else 60
+    detail_h = len(shots) * 360 + 60
+    H = (120 + err_h + len(shots) * row_h + len(cut_frames) * cut_h + 260 + max(i.shape[0] for i in phone.values())
+         + 120 + detail_h)
     sh = _Sheet(W, H)
     y = 40
     sh.text(f"{comp.name}  レビュー  {datetime.datetime.now():%Y-%m-%d %H:%M}", 24, y, 26)
@@ -207,6 +288,19 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
             f"ペース: {pace}   静止 {m.rest_ratio:.0%}   起伏 {m.contrast:.3f}   閃き {len(m.pops)}", 24, y + 34, 16,
             DIM)
     y += 80
+    if errors:
+        sh.text(f"エラー {len(errors)} 件 (直すか、理由つきの Waiver を書くまで完了にしない)", 24, y + 10, 20, WARN)
+        y += 40
+        for fd in errors:
+            sh.text(f"{fd.t:.2f}s  {fd.rule}: {fd.detail}"[:110], 24, y + 10, 15, WARN)
+            img = full[min(full, key=lambda f: abs(f - fd.t * fps))]
+            x, yy, cw, ch = fd.crop or (0, 0, img.shape[1], img.shape[0])
+            crop = img[yy:yy + ch, x:x + cw]
+            hh = sh.image(crop, 24, y + 26, min(cw, 420) if fd.crop else 360)
+            y += max(hh, 200) + 44
+    else:
+        sh.text("エラー 0 件", 24, y + 10, 20, OK)
+        y += 50
 
     for s in shots:
         sh.text(f"{s.name}", 24, y + 10, 20)
@@ -230,6 +324,19 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
             sh.text(f"{o:+.2f}", x + 4, y + 24 + hh + 12, 11, WARN if o == 0 else DIM, font="mono")
             x += sw + 6
         y += cut_h
+
+    # 等倍の切り出し: 各ショットの中央のコマから、細部 (文字・線) が最も多い領域を 2 つ
+    sh.text("等倍の拡大 (細い線の色・文字の欠けはここで見る)", 24, y + 10, 18)
+    y += 36
+    for s in shots:
+        f = shot_frames[s.name][1]
+        img = full[f]
+        x = 24
+        sh.text(f"{s.name} {f / fps:.2f}s", 24, y + 10, 13, DIM)
+        for (cx, cy) in _detail_regions(img, 300, 2):
+            sh.image(img[cy:cy + 300, cx:cx + 300], x, y + 24, 300)
+            x += 312
+        y += 336
 
     # 音の波形とカット・キュー
     sh.text("音とタイミング", 24, y + 10, 18)
@@ -267,7 +374,13 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     png = out / f"{stamp}.png"
     sh.save(png)
 
-    lines = [f"# レビュー {stamp}", "", f"シート: {png.name}", "", "## 自動計測", "",
+    lines = [f"# レビュー {stamp}", "", f"シート: {png.name}", "",
+             f"## エラー ({len(errors)} 件)", ""]
+    lines += [f"- {fd.t:.2f}s `{fd.rule}`: {fd.detail}" for fd in errors] or ["- なし"]
+    waived = [fd for fd in findings if fd.waived is not None]
+    if waived:
+        lines += ["", "例外として扱ったもの:"] + [f"- {fd.t:.2f}s `{fd.rule}`: {fd.waived}" for fd in waived]
+    lines += ["", "## 自動計測", "",
              f"- ペース: {pace} (画面の大きな変化 {len(m.changes)} 回)",
              f"- 静止の割合: {m.rest_ratio:.0%} (目安 40〜60%)",
              f"- 動きの起伏: {m.contrast:.3f} ({'平坦' if m.contrast < 0.15 else 'OK'}。0.15 未満は平坦)",
@@ -300,4 +413,6 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     md = out / f"{stamp}.md"
     md.write_text("\n".join(lines), encoding="utf-8")
     print(f"-> {png}\n-> {md}")
-    return png
+    for fd in errors:
+        print(f"ERROR {fd.t:.2f}s {fd.rule}: {fd.detail}")
+    return ReviewResult(png, md, errors)

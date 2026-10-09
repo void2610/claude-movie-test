@@ -26,8 +26,8 @@ def test_shotlist_rejects_overlap():
 
 
 def test_review_writes_sheet_and_notes(tmp_path):
-    png = review(MINI, tmp_path)
-    md = png.with_suffix(".md").read_text(encoding="utf-8")
+    res = review(MINI, tmp_path)
+    png, md = res.png, res.md.read_text(encoding="utf-8")
     assert png.exists() and png.stat().st_size > 10_000
     assert "静止の割合" in md and "大きな欠点" in md
 

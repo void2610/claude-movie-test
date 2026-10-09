@@ -176,6 +176,9 @@ class Composition:
     shots: Any = None
     # 最初と最後のコマが一致するべきループ作品か (レビューで差を測る)
     loop: bool = False
+    # 等倍の画素で確かめる作品ごとの検査 (checks.Check) と、自動検査の例外 (checks.Waiver)
+    checks: list = field(default_factory=list)
+    waivers: list = field(default_factory=list)
 
     def __post_init__(self):
         self.background = to_color(self.background)

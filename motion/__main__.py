@@ -153,7 +153,9 @@ def main() -> None:
         still(args.project, args.t, args.out, scale=args.scale)
     elif args.cmd == "review":
         from .review import review
-        review(args.project, args.out, args.scale)
+        res = review(args.project, args.out, args.scale)
+        if res.errors:
+            raise SystemExit(f"レビューのエラー {len(res.errors)} 件。直すか、理由つきの Waiver を作品に書く")
     elif args.cmd == "audio":
         comp = load_project(args.project)
         prepare(comp)
