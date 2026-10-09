@@ -14,6 +14,7 @@ import skia
 from motion import Composition, Palette, audio, draw, post, rules, scene, sfx, text
 from motion.anim import clamp, impact, lerp, progress
 from motion.checks import Check, color_along
+from motion.tune import tune
 from motion.persp import Camera, Card, draw_cards
 from motion.shots import ShotList
 from motion.texture import misregister
@@ -22,8 +23,6 @@ HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent / "liminal"))
 from ui import MONO, background, chip, colored_line, fuzzy, logo_mark, tokenize_cs  # noqa: E402
 
-pal = Palette(bg="#0E0E11", fg="#ECECEF", panel="#1C1C21", line="#34343C", blue="#3B82F6", yellow="#FACC15",
-              dim="#8B8B95", sel="#2B5A8C")
 WAYS = [("Human", "GUI"), ("AI Agent", "HTTP API"), ("Test", "C# API")]
 COMMANDS = ["Player/Health/Set", "Player/Health/Reset", "Player/Teleport", "Enemy/Spawn", "Game/TimeScale"]
 CODE = ['[LiminalCommand("Player/Health/Set")]', "public void SetHealth(int value)", "    => Hp.Value = value;"]
@@ -31,17 +30,27 @@ QUERY = "player health set"
 LOOP = 12.0
 MARGIN = 76           # 正方形のセーフエリア (端から 7%)
 
-# タイミング (秒)。音もここから引く
-T_TYPE = 0.3          # 検索語の入力開始 (1 秒に 12 文字)
-TYPE_RATE = 12
+# タイミング (秒)・色・文言はスタジオから調整できる (tune.json)。音も同じ値を引く
+P = tune(HERE,
+         T_FLIP=(2.0, 1.5, 3.0), T_CODE=(2.25, 1.75, 3.5), T_UNDERLINE=(3.5, 2.5, 4.5), T_SHIFT=(4.6, 3.8, 5.0),
+         T_WAYS=(5.25, 4.75, 6.0), WAY_GAP=(0.5, 0.25, 1.0), ARRIVE0=(7.0, 6.0, 8.0), T_WORDMARK=(9.0, 8.5, 10.0),
+         TYPE_RATE=(12, 6, 24), CAM_SWAY=(5.0, 0.0, 15.0), MISREG=(4.0, 0.0, 10.0), GRAIN=(0.018, 0.0, 0.06),
+         BLUE="#3B82F6", YELLOW="#FACC15",
+         H1="ONE ATTRIBUTE.", H1_SMALL="[LiminalCommand]", H2="THREE WAYS IN.", H2_SMALL="HUMANS · AI AGENTS · TESTS")
+T_TYPE = 0.3
+TYPE_RATE = P.TYPE_RATE
 T_SELECT = T_TYPE + len(QUERY) / TYPE_RATE + 0.08
-T_FLIP = 2.0          # パレットが裏返る
-T_CODE = 2.25         # 属性のカードが奥から来る
-T_UNDERLINE = 3.5     # 属性の行に下線
-T_SHIFT = 4.6         # 属性のカードが右へ寄る
-T_WAYS = 5.25         # 3 経路のカードが来始める (0.5 秒おき)
-ARRIVE = [7.0, 7.5, 8.0]
-T_WORDMARK = 9.0
+T_FLIP = P.T_FLIP
+T_CODE = P.T_CODE
+T_UNDERLINE = P.T_UNDERLINE
+T_SHIFT = P.T_SHIFT
+T_WAYS = P.T_WAYS
+ARRIVE = [P.ARRIVE0 + P.WAY_GAP * i for i in range(3)]
+T_WORDMARK = P.T_WORDMARK
+
+pal = Palette(bg="#0E0E11", fg="#ECECEF", panel="#1C1C21", line="#34343C", blue=P.BLUE, yellow=P.YELLOW,
+              dim="#8B8B95", sel="#2B5A8C")
+
 T_RETURN = 10.8       # 全部が 0 秒の状態へ戻り始める
 T_BACK = 11.0         # パレットが表に戻る
 
@@ -54,7 +63,7 @@ def build(aspect: str = "1:1") -> Composition:
     shots = ShotList.from_md(HERE / "shotlist.md")
     W, H = {"16:9": (1920, 1080), "9:16": (1080, 1920), "1:1": (1080, 1080)}[aspect]
     comp = Composition(width=W, height=H, duration=LOOP, bpm=120, background=pal.bg, shots=shots,
-                       motion_blur=3, loop=True)
+                       motion_blur=3, loop=True, tune=P)
     comp.cues = [T_UNDERLINE] + ARRIVE
 
     @scene(0, None, z=-10)
@@ -135,7 +144,7 @@ def build(aspect: str = "1:1") -> Composition:
     def layout(t: float, ctx) -> dict:
         """カメラと各カードの位置。描画と検査 (comp.checks) の両方から同じ値を引く。"""
         # カメラは 12 秒周期の滑らかな揺れだけにする (style.md: 活発さ 2。周期関数なのでループの継ぎ目が出ない)
-        cam = Camera.default(ctx).orbit(yaw=-10 + 5 * math.sin(phase(t)), pitch=6 + 2 * math.sin(phase(t) + 1.0))
+        cam = Camera.default(ctx).orbit(yaw=-10 + P.CAM_SWAY * math.sin(phase(t)), pitch=6 + 2 * math.sin(phase(t) + 1.0))
         cam = cam.dolly(1.02 + 0.03 * (1 - math.cos(phase(t))) / 2)
         come = clamp(rules.enter("panel", t, T_CODE))
         go = progress(t, T_RETURN, T_RETURN + 0.6, rules.EXIT)
@@ -145,7 +154,7 @@ def build(aspect: str = "1:1") -> Composition:
         target = (lerp(W * 0.5, W * 0.71, shift), lerp(H * 0.4, H * 0.47, shift), 700 * (1 - come) + 600 * go)
         src = []
         for i in range(3):
-            t0 = rules.stagger(i, 3, T_WAYS, gap=0.5)
+            t0 = rules.stagger(i, 3, T_WAYS, gap=P.WAY_GAP)
             p = clamp(rules.enter("panel", t, t0))
             out = progress(t, T_RETURN + i * 0.08, T_RETURN + 0.5 + i * 0.08, rules.EXIT)
             src.append(((W * 0.19, H * (0.25 + 0.22 * i), 900 * (1 - p) + 900 * out), p, out, t0))
@@ -240,8 +249,8 @@ def build(aspect: str = "1:1") -> Composition:
     @scene(0, None, z=5, fixed=True)
     def captions(c, ctx):
         t = ctx.t
-        headline(c, ctx, "ONE ATTRIBUTE.", "[LiminalCommand]", T_FLIP + 0.1, T_WAYS - 0.05)
-        headline(c, ctx, "THREE WAYS IN.", "HUMANS · AI AGENTS · TESTS", T_WAYS - 0.3, T_WORDMARK + 0.15)
+        headline(c, ctx, P.H1, P.H1_SMALL, T_FLIP + 0.1, T_WAYS - 0.05)
+        headline(c, ctx, P.H2, P.H2_SMALL, T_WAYS - 0.3, T_WORDMARK + 0.15)
         # ワードマークは 9 秒に見出しと入れ替わりで出て、ループをまたいで次の 1.8 秒まで残る
         if t >= T_WORDMARK:
             a = clamp(rules.enter("panel", t, T_WORDMARK))
@@ -259,15 +268,15 @@ def build(aspect: str = "1:1") -> Composition:
         # 縦の合流区間と、矢印までの横の区間を、端を避けて調べる
         pts = [(mx_, y0 + (y1 - y0) * u) for u in np.linspace(0.15, 0.85, 12)]
         pts += [(mx_ + (x1 - mx_) * u, y1) for u in np.linspace(0.2, 0.8, 8)]
-        return color_along(img, pts, "#3B82F6")
+        return color_along(img, pts, P.BLUE)
 
     comp.checks.append(Check("HTTP API の線の合流区間は青", [8.3, 8.7, 9.6], http_wire_is_blue))
     comp.add(bg, world, captions)
     comp.post = [
         post.bloom(threshold=0.7, strength=0.35, radius=20),
-        misregister(lambda ctx: 4.0 * impact(ctx.t, ARRIVE, 7)),
+        misregister(lambda ctx: P.MISREG * impact(ctx.t, ARRIVE, 7)),
         post.vignette(0.28),
-        post.grain(0.018),
+        post.grain(P.GRAIN),
     ]
     comp.audio = make_audio
     return comp
