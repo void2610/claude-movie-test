@@ -12,7 +12,8 @@
 1. `uv run python -m motion new <名前>` でひな形を作り、`brief.md` → `style.md` → `shotlist.md` を埋める。空欄のままレンダリングしない (モデルが無難な既定値で埋め、凡庸な定番になる)
 2. 素材 (ロゴ・画面・キャプチャ・音) は実物だけを使う。足りなければ止めてユーザーに確認し、それらしいものを捏造しない
 3. 最も大事な 1 ショットを先に作り、`still` で見せて方向性の合意を取ってから他を作る
-4. `review` のシートと review.md で最も大きな欠点を 3 つ、時刻・根拠・局所的な修正つきで書き、その区間だけ直して `review` し直す
+4. `review` のシートと review.md で最も大きな欠点を 3 つ、時刻・根拠・局所的な修正つきで書き、その区間だけ直して `review` し直す。`review` は等倍の画素で検査し (縁での見切れ・1 フレームの閃き・ループ・作品ごとの `comp.checks`)、エラーが 1 件でも残ると失敗で終わる。エラーが 0 件になるまで完了と報告しない
+6. ユーザーから見た目の指摘を受けたら、直す前にその症状を `comp.checks` に `Check` として書き、今の版で失敗することを確かめてから直す (同じミスを別の作品で繰り返さないため)。意図した例外だけ理由つきの `Waiver` にする
 5. 縦長・正方形は切り抜きではなく、同じ素材とショットで別の構成として組む (`--set aspect=...`)
 
 ```sh
@@ -42,6 +43,7 @@ uv run pytest                                           # テスト (描画を�
 | `shots` | `ShotList.from_md("shotlist.md")` を `Composition(shots=...)` に渡すと、`shots["proof"].start` のように時刻を引け、`review` がショットごとにコマを選ぶ |
 | `rules` | 動きの種類 (micro / ui / panel / headline / playful / camera / move) ごとの `enter` `leave` `scale_in`、`read_time` (文字列を読ませる最低時間)、`stagger` (時間差の合計を抑える)。作品の中で場当たり的に曲線を作らない |
 | `persp` | 2.5D。`Camera.default(ctx).orbit(yaw).dolly(k)` と `Card(center, size, rot, draw=...)` を `draw_cards` で奥から描く。`grid_floor` |
+| `checks` | `Check(name, times, fn)` (等倍の画像で症状を確かめる)、`color_along` (線の上の画素の色)、`edge_clips` (縁で切れた要素)、`Waiver` (理由つきの例外) |
 | `texture` | `paper` (くしゃっとした紙)、`halftone` (網点)、`misregister` (印刷の版ずれ。衝撃の時だけ強める) |
 | `anim` / `easing` | `tween` `progress` `Keys` `spring` `stagger` `window` `impact`、各種イージングと `cubic_bezier` |
 | `draw` / `color` | 図形・パス・`trim`・`transform` / `layer` / `clip_rect`、`Color` `Palette` |
