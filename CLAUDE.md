@@ -13,7 +13,9 @@
 2. 素材 (ロゴ・画面・キャプチャ・音) は実物だけを使う。足りなければ止めてユーザーに確認し、それらしいものを捏造しない
 3. 最も大事な 1 ショットを先に作り、`still` で見せて方向性の合意を取ってから他を作る
 4. `review` のシートと review.md で最も大きな欠点を 3 つ、時刻・根拠・局所的な修正つきで書き、その区間だけ直して `review` し直す。`review` は等倍の画素で検査し (縁での見切れ・1 フレームの閃き・ループ・作品ごとの `comp.checks`)、エラーが 1 件でも残ると失敗で終わる。エラーが 0 件になるまで完了と報告しない
-6. 調整はスタジオ (`motion studio`) で行う。作品はタイミング・色・文言を `tune()` で宣言してスタジオから触れるようにする。ユーザーがスタジオで付けたメモは作品の `notes.md` に「- [ ] 08.30s 本文」で残るので、作業を始める前に読み、未完了の項目をその時刻の箇所だけ直して `[x]` にする
+6. 調整はスタジオ (`motion studio`) で行う。人間は映像の要素を直接つかんで動かす・拡大縮小・回転し、文言・色・出のタイミングを変える。そのため作品のコードでは、画面に描く要素を必ず `node(c, ctx, "名前", origin=..., span=...)` (2.5D のカードは `Card(id=...)`) で名前を付けて囲み、文言・色など人間が変えそうな値は `n.prop("text", 既定値)` で読み、アニメーションの時刻は `ctx.t` ではなく `n.t` を使う。作品全体に効く値 (BPM 由来の時刻など) だけ `tune()` にする
+   - 人間の変更は作品の `edits.json` に要素の名前ごとの差分 (dx, dy, dz, scale, rot, opacity, dt, hidden, props) で残り、書き出しにもそのまま反映される。作業の前に読み、人間が何をどう変えたかを把握する。要素の名前は変えない (変えると差分が外れる)。コードを大きく作り直すときは、差分をコードの既定値に取り込んでから edits.json の該当項目を消す
+   - メモは作品の `notes.md` に「- [ ] 08.30s [要素名] 本文」で残る。作業前に読み、未完了の項目をその時刻・その要素だけ直して `[x]` にする
 7. ユーザーから見た目の指摘を受けたら、直す前にその症状を `comp.checks` に `Check` として書き、今の版で失敗することを確かめてから直す (同じミスを別の作品で繰り返さないため)。意図した例外だけ理由つきの `Waiver` にする
 5. 縦長・正方形は切り抜きではなく、同じ素材とショットで別の構成として組む (`--set aspect=...`)
 
@@ -45,6 +47,7 @@ uv run pytest                                           # テスト (描画を�
 | `shots` | `ShotList.from_md("shotlist.md")` を `Composition(shots=...)` に渡すと、`shots["proof"].start` のように時刻を引け、`review` がショットごとにコマを選ぶ |
 | `rules` | 動きの種類 (micro / ui / panel / headline / playful / camera / move) ごとの `enter` `leave` `scale_in`、`read_time` (文字列を読ませる最低時間)、`stagger` (時間差の合計を抑える)。作品の中で場当たり的に曲線を作らない |
 | `persp` | 2.5D。`Camera.default(ctx).orbit(yaw).dolly(k)` と `Card(center, size, rot, draw=...)` を `draw_cards` で奥から描く。`grid_floor` |
+| `nodes` | `with node(c, ctx, id, origin, label, span) as n:` で要素を名前付きで描く (`n.c` に描き、`n.t` で時刻、`n.prop` で人間が変えられる値)。`props(ctx, id)` は描画を囲まずに値だけ読む。差分は `edits.json` |
 | `tune` | `P = tune(HERE, T_RUN=(5.0, 3, 8), ACCENT="#FACC15", H1="...")` をモジュールの先頭で呼び、`Composition(tune=P)` に渡す。値は作品の `tune.json` に保存される |
 | `checks` | `Check(name, times, fn)` (等倍の画像で症状を確かめる)、`color_along` (線の上の画素の色)、`edge_clips` (縁で切れた要素)、`Waiver` (理由つきの例外) |
 | `texture` | `paper` (くしゃっとした紙)、`halftone` (網点)、`misregister` (印刷の版ずれ。衝撃の時だけ強める) |
