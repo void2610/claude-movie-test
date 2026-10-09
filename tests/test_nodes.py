@@ -61,3 +61,27 @@ def test_card_edits_and_bounds(tmp_path):
     assert (round(l), round(r)) == (200, 300)
     img = s.makeImageSnapshot().toarray(colorType=skia.kRGBA_8888_ColorType)
     assert img[150, 250, 0] > 200 and img[150, 170, 0] < 50
+
+
+def test_nested_nodes_move_with_parent_and_alone(tmp_path):
+    comp = Composition(width=200, height=100, fps=10, duration=1, background="#000000", linear=False)
+    comp.project_dir = str(tmp_path)
+
+    @scene(0, 1)
+    def s(c, ctx):
+        with node(c, ctx, "h", origin=(0, 0)) as n:
+            with node(n.c, ctx, "h.a", origin=(10, 10)) as a:
+                draw.rect(a.c, 10, 10, 10, 10, "#ff0000")
+            with node(n.c, ctx, "h.b", origin=(50, 10)) as b:
+                draw.rect(b.c, 50, 10, 10, 10, "#00ff00")
+
+    comp.add(s)
+    save(tmp_path / "edits.json", "h", {"dx": 100})
+    save(tmp_path / "edits.json", "h.a", {"dy": 40})
+    r = FrameRenderer(comp)
+    img = r.frame(0)
+    seen = edits_of(comp).seen
+    assert seen["h.a"].parent == "h" and seen["h.b"].parent == "h"
+    assert seen["h.a"].bounds == (110, 50, 120, 60)             # 親の移動 + 自分の移動
+    assert seen["h.b"].bounds == (150, 10, 160, 20)             # 親の移動だけ
+    assert img[55, 115, 0] > 200 and img[15, 155, 1] > 200

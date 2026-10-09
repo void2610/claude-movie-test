@@ -43,6 +43,7 @@ class Seen:
     props: dict[str, dict] = field(default_factory=dict)
     span: tuple[float, float] | None = None
     space: str = "2d"
+    parent: str | None = None
 
 
 class Edits:
@@ -57,6 +58,9 @@ class Edits:
         self.seen: dict[str, Seen] = {}
         self.spans: dict[str, tuple[float, float]] = {}
         self.labels: dict[str, str] = {}
+        # 入れ子の要素: 親の名前と時刻 (子の時刻は親のずれも受ける)、親が記録中の子の一覧
+        self._ids: list[tuple[str, float]] = []
+        self._rec: list[list[Seen]] = []
 
     def of(self, id: str) -> dict:
         return self.data.get(id, {})
@@ -72,6 +76,30 @@ class Edits:
 
     def begin_frame(self) -> None:
         self.seen = {}
+        self._ids = []
+        self._rec = []
+
+    def parent(self) -> str | None:
+        return self._ids[-1][0] if self._ids else None
+
+    def base_t(self, t: float) -> float:
+        return self._ids[-1][1] if self._ids and self._ids[-1][1] is not None else t
+
+    @contextmanager
+    def group(self, id: str, t: float | None):
+        """記録を伴わない親 (2.5D のカードなど)。中で描かれた要素の親になり、時刻のずれを子へ渡す。"""
+        self._ids.append((id, t))
+        try:
+            yield
+        finally:
+            self._ids.pop()
+
+    def emit(self, s: Seen) -> None:
+        """親が記録中ならその中の座標で親に預け、そうでなければ画面の座標として記録する。"""
+        if self._rec:
+            self._rec[-1].append(s)
+        else:
+            self.note(s)
 
     def note(self, s: Seen) -> None:
         # モーションブラーでは 1 フレームに数回描かれるので、範囲を合わせる
@@ -96,7 +124,7 @@ class Node:
         self.ctx = ctx
         self.id = id
         self._e = edits
-        self.t = edits.t(id, ctx.t)
+        self.t = edits.base_t(ctx.t) - edits.tr(id, "dt")
         self.props: dict[str, dict] = {}
 
     def prop(self, key: str, default: Any) -> Any:
@@ -114,17 +142,28 @@ def props(ctx, id: str) -> Node:
 @contextmanager
 def node(c: skia.Canvas, ctx, id: str, *, origin: tuple[float, float] = (0.0, 0.0), label: str | None = None,
          span: tuple[float, float] | None = None):
-    """要素を名前付きで描く。origin は拡大縮小・回転の中心 (作品の座標)。span は出ている区間 (タイムライン用)。"""
+    """要素を名前付きで描く。origin は拡大縮小・回転の中心 (作品の座標)。span は出ている区間 (タイムライン用)。
+
+    node の中で node を使うと入れ子になる。子は親の移動・拡大・回転・時刻のずれを受け、単独でも動かせる。
+    """
     e = edits_of(ctx.comp)
     o = e.of(id)
     n = Node(c, ctx, id, e)
+    parent = e.parent()
     if span:
         e.spans[id] = span
     e.labels[id] = label or id
     rec = skia.PictureRecorder()
     rc = rec.beginRecording(_BIG, skia.RTreeFactory()())
     n.c = rc
-    yield n
+    children: list[Seen] = []
+    e._ids.append((id, n.t))
+    e._rec.append(children)
+    try:
+        yield n
+    finally:
+        e._rec.pop()
+        e._ids.pop()
     pic = rec.finishRecordingAsPicture()
     if o.get("hidden"):
         return
@@ -142,12 +181,20 @@ def node(c: skia.Canvas, ctx, id: str, *, origin: tuple[float, float] = (0.0, 0.
     c.drawPicture(pic)
     if op < 1.0:
         c.restore()
+    m = c.getTotalMatrix()
     cull = pic.cullRect()
     if cull.width() > 0 and cull.height() > 0 and cull.width() < 1e5:
-        r = c.getTotalMatrix().mapRect(cull)
-        m = c.getTotalMatrix()
+        r = m.mapRect(cull)
         org = m.mapXY(ox, oy)
-        e.note(Seen(id, e.labels[id], (r.left(), r.top(), r.right(), r.bottom()), (org.x(), org.y()), n.props, span))
+        e.emit(Seen(id, e.labels[id], (r.left(), r.top(), r.right(), r.bottom()), (org.x(), org.y()), n.props, span,
+                    parent=parent))
+    # 子の範囲は親の記録の中の座標なので、親を描いた変換で写してから上へ渡す
+    for ch in children:
+        r = m.mapRect(skia.Rect.MakeLTRB(*ch.bounds))
+        org = m.mapXY(*ch.origin)
+        ch.bounds = (r.left(), r.top(), r.right(), r.bottom())
+        ch.origin = (org.x(), org.y())
+        e.emit(ch)
     c.restore()
 
 

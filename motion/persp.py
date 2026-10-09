@@ -155,7 +155,11 @@ def draw_cards(c: skia.Canvas, cam: Camera, cards: list[Card], near: float = 10.
     for _, card, q in sorted(items, key=lambda x: -x[0]):
         if card.opacity < 1.0:
             c.saveLayerAlpha(None, int(round(max(card.opacity, 0) * 255)))
-        drawn = _draw_card(c, cam, card, q)
+        if edits is not None and card.id:
+            with edits.group(card.id, card.meta.get("t")):
+                drawn = _draw_card(c, cam, card, q)
+        else:
+            drawn = _draw_card(c, cam, card, q)
         if card.opacity < 1.0:
             c.restore()
         if drawn and edits is not None and card.id:
@@ -164,7 +168,7 @@ def draw_cards(c: skia.Canvas, cam: Camera, cards: list[Card], near: float = 10.
             xs, ys = [p.x() for p in pts], [p.y() for p in pts]
             org = m.mapXY(float(q[:, 0].mean()), float(q[:, 1].mean()))
             edits.note(Seen(card.id, card.label or card.id, (min(xs), min(ys), max(xs), max(ys)), (org.x(), org.y()),
-                            card.node.props if card.node else {}, card.span, "3d"))
+                            card.node.props if card.node else {}, card.span, "3d", edits.parent()))
 
 
 def _draw_card(c: skia.Canvas, cam: Camera, card: Card, q: np.ndarray) -> bool:
