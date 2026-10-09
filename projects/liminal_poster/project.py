@@ -77,77 +77,88 @@ def build(aspect: str = "1:1") -> Composition:
     # ------------------------------------------------------------ カードの中身
     PW, PH = 720, 420
 
-    def palette_face(t, n):
-        query = n.prop("query", QUERY)
+    def palette_face(ctx, t, n):
         sel_col = n.prop("selection", "#2B5A8C")
 
         def f(c):
             draw.fill(c, pal.panel)
             c.drawRRect(skia.RRect.MakeRectXY(skia.Rect.MakeWH(PW, PH), 20, 20), draw.paint(pal.blue, stroke=3))
-            for i, lab in enumerate(("Command", "Scenario", "Log", "History")):
-                text.text(c, lab, 30 + i * 128, 36, font=MONO, size=17, color=pal.blue if i == 0 else "#55555E",
-                          valign="cap")
-            c.drawRRect(skia.RRect.MakeRectXY(skia.Rect.MakeXYWH(24, 62, PW - 48, 62), 10, 10),
-                        draw.paint(pal.bg))
-            c.drawRRect(skia.RRect.MakeRectXY(skia.Rect.MakeXYWH(24, 62, PW - 48, 62), 10, 10),
-                        draw.paint(pal.blue, stroke=2))
-            text.text(c, ">", 44, 93, font=MONO, size=26, axes={"wght": 700}, color=pal.blue, valign="cap")
-            q = query[:int(clamp((t - T_TYPE) * TYPE_RATE / len(query)) * len(query))] if t < 9 else ""
-            sh = text.text(c, q, 76, 93, font=MONO, size=26, color=pal.fg, valign="cap")
-            if t < T_SELECT and (t % 0.5) < 0.3 or T_TYPE <= t < T_SELECT:
-                draw.rect(c, 78 + sh.width, 76, 13, 32, pal.yellow)
-            rows = [(cmd, fuzzy(q, cmd)) for cmd in COMMANDS]
-            rows = [(cmd, m) for cmd, m in rows if m is not None] if q else [(cmd, []) for cmd in COMMANDS]
-            for r, (cmd, marks) in enumerate(rows[:5]):
-                y = 146 + r * 52
-                selected = r == 0 and t >= T_SELECT
-                if selected:
-                    c.drawRRect(skia.RRect.MakeRectXY(skia.Rect.MakeXYWH(24, y, PW - 48, 46), 8, 8),
-                                draw.paint(sel_col))
-                pen = 44
-                for j, ch in enumerate(cmd):
-                    hit = j in set(marks)
-                    col = pal.yellow if hit else (pal.fg if selected else pal.dim)
-                    s2 = text.text(c, ch, pen, y + 23, font=MONO, size=22, axes={"wght": 650 if hit else 450},
-                                   color=col, valign="cap")
-                    pen += s2.width
+            with node(c, ctx, "palette.tabs", origin=(30, 36), label="パレット: タブ") as k:
+                for i, lab in enumerate(("Command", "Scenario", "Log", "History")):
+                    text.text(k.c, lab, 30 + i * 128, 36, font=MONO, size=17,
+                              color=k.prop("active_color", P.BLUE) if i == 0 else "#55555E", valign="cap")
+            with node(c, ctx, "palette.search", origin=(24, 62), label="パレット: 検索欄") as k:
+                query = k.prop("query", QUERY)
+                k.c.drawRRect(skia.RRect.MakeRectXY(skia.Rect.MakeXYWH(24, 62, PW - 48, 62), 10, 10), draw.paint(pal.bg))
+                k.c.drawRRect(skia.RRect.MakeRectXY(skia.Rect.MakeXYWH(24, 62, PW - 48, 62), 10, 10),
+                              draw.paint(pal.blue, stroke=2))
+                text.text(k.c, ">", 44, 93, font=MONO, size=26, axes={"wght": 700}, color=pal.blue, valign="cap")
+                q = query[:int(clamp((t - T_TYPE) * TYPE_RATE / len(query)) * len(query))] if t < 9 else ""
+                sh = text.text(k.c, q, 76, 93, font=MONO, size=26, color=pal.fg, valign="cap")
+                if t < T_SELECT and (t % 0.5) < 0.3 or T_TYPE <= t < T_SELECT:
+                    draw.rect(k.c, 78 + sh.width, 76, 13, 32, pal.yellow)
+            with node(c, ctx, "palette.list", origin=(24, 146), label="パレット: 候補の一覧") as k:
+                hit_col = k.prop("match_color", P.YELLOW)
+                rows = [(cmd, fuzzy(q, cmd)) for cmd in COMMANDS]
+                rows = [(cmd, m) for cmd, m in rows if m is not None] if q else [(cmd, []) for cmd in COMMANDS]
+                for r, (cmd, marks) in enumerate(rows[:5]):
+                    y = 146 + r * 52
+                    selected = r == 0 and t >= T_SELECT
+                    if selected:
+                        k.c.drawRRect(skia.RRect.MakeRectXY(skia.Rect.MakeXYWH(24, y, PW - 48, 46), 8, 8),
+                                      draw.paint(sel_col))
+                    pen = 44
+                    for j, ch in enumerate(cmd):
+                        hit = j in set(marks)
+                        col = hit_col if hit else (pal.fg if selected else pal.dim)
+                        s2 = text.text(k.c, ch, pen, y + 23, font=MONO, size=22, axes={"wght": 650 if hit else 450},
+                                       color=col, valign="cap")
+                        pen += s2.width
         return f
 
-    def code_face(lit: float, underline: float, hits: int, k: float, n):
-        lines = [n.prop("line1", CODE[0]), n.prop("line2", CODE[1]), n.prop("line3", CODE[2])]
-        result = n.prop("result", "HP 100 → 50")
-
+    def code_face(ctx, lit: float, underline: float, hits: int, k: float, n):
         def f(c):
             c.scale(k, k)
             draw.fill(c, pal.panel)
             c.drawRRect(skia.RRect.MakeRectXY(skia.Rect.MakeWH(560, 250), 18, 18),
                         draw.paint(pal.line.mix(pal.yellow, 0.55 + 0.45 * lit), stroke=3))
-            for i, ln in enumerate(lines):
-                colored_line(c, tokenize_cs(ln), 28, 60 + i * 42, size=21)
-            if underline > 0:
-                aw = text.shape(lines[0], MONO, 21, {"wght": 450}).width
-                draw.line(c, 28, 72, 28 + aw * underline, 72, pal.yellow, 3)
+            first = CODE[0]
+            for i, default in enumerate(CODE):
+                y = 60 + i * 42
+                with node(c, ctx, f"code.line{i + 1}", origin=(28, y), label=f"コード {i + 1} 行目") as m:
+                    ln = m.prop("text", default)
+                    colored_line(m.c, tokenize_cs(ln), 28, y, size=m.prop("size", 21))
+                    if i == 0:
+                        first = ln
+                        if underline > 0:
+                            aw = text.shape(ln, MONO, 21, {"wght": 450}).width
+                            draw.line(m.c, 28, 72, 28 + aw * underline, 72, m.prop("underline_color", P.YELLOW), 3)
             if hits:
-                text.text(c, f"{result}   ×{hits}", 28, 212, font=MONO, size=24, axes={"wght": 650},
-                          color="#4ADE80", valign="cap")
+                with node(c, ctx, "code.result", origin=(28, 212), label="コード: 結果") as m:
+                    text.text(m.c, f"{m.prop('text', 'HP 100 → 50')}   ×{hits}", 28, 212, font=MONO, size=24,
+                              axes={"wght": 650}, color=m.prop("color", "#4ADE80"), valign="cap")
         return f
 
-    def way_face(i: int, glow: float, n):
-        label = n.prop("label", WAYS[i][0])
-        via = n.prop("via", WAYS[i][1])
-        body = n.prop("body", ["> player health set", "> Set player HP to 50", 'await Execute("…/Set", 50)'][i])
+    def way_face(ctx, i: int, glow: float, n):
+        wid = WAY_IDS[i]
 
         def f(c):
             draw.fill(c, pal.panel)
             border = pal.blue if i == 1 else pal.line
             c.drawRRect(skia.RRect.MakeRectXY(skia.Rect.MakeWH(360, 132), 16, 16),
                         draw.paint(border.mix(pal.yellow, glow), stroke=2.5))
-            chip(c, 20, 18, label, color=pal.blue if i == 1 else pal.dim, size=18)
-            if i == 2:
-                colored_line(c, tokenize_cs(body), 22, 96, size=20)
-            else:
-                text.text(c, body, 22, 92, font=MONO, size=21, color=pal.fg, valign="cap")
-            text.text(c, via, 340, 30, font=MONO, size=16, color=pal.dim, align="right", valign="cap")
+            with node(c, ctx, f"{wid}.label", origin=(20, 18), label=f"経路 {WAYS[i][0]}: ラベル") as m:
+                chip(m.c, 20, 18, m.prop("text", WAYS[i][0]), color=m.prop("color", P.BLUE if i == 1 else "#8B8B95"),
+                     size=18)
+            with node(c, ctx, f"{wid}.body", origin=(22, 92), label=f"経路 {WAYS[i][0]}: 本文") as m:
+                body = m.prop("text", ["> player health set", "> Set player HP to 50", 'await Execute("…/Set", 50)'][i])
+                if i == 2:
+                    colored_line(m.c, tokenize_cs(body), 22, 96, size=20)
+                else:
+                    text.text(m.c, body, 22, 92, font=MONO, size=21, color=m.prop("color", "#ECECEF"), valign="cap")
+            with node(c, ctx, f"{wid}.via", origin=(340, 30), label=f"経路 {WAYS[i][0]}: 経由") as m:
+                text.text(m.c, m.prop("text", WAYS[i][1]), 340, 30, font=MONO, size=16, color=pal.dim, align="right",
+                          valign="cap")
         return f
 
     # ------------------------------------------------------------ 空間
@@ -213,8 +224,8 @@ def build(aspect: str = "1:1") -> Composition:
         pn = props(ctx, "palette")
         flip = progress(tp, T_FLIP, T_FLIP + 0.7, rules.MOVE) - progress(tp, T_BACK, T_BACK + 0.8, rules.MOVE)
         cards.append(Card((W * 0.5, H * 0.42, 220 * flip), (PW, PH), rot=(12 + 88 * flip, -6, 0),
-                          draw=palette_face(tp, pn), radius=20, shadow=30, id="palette", label="パレット",
-                          span=(0.0, T_FLIP + 0.7), node=pn))
+                          draw=palette_face(ctx, tp, pn), radius=20, shadow=30, id="palette", label="パレット",
+                          span=(0.0, T_FLIP + 0.7), node=pn, meta={"t": tp}))
 
         # 属性のカード
         tc = E.t("code", t)
@@ -225,8 +236,8 @@ def build(aspect: str = "1:1") -> Composition:
         underline = progress(tc, T_UNDERLINE, T_UNDERLINE + 0.4, rules.ENTER) * (1 - L["go"])
         if L["come"] > 0.02 and L["go"] < 0.98:
             cards.append(Card(L["target"], (560 * k, 250 * k), rot=(-8, 0, 0),
-                              draw=code_face(lit, underline, hits, k, cn), radius=18 * k, shadow=26, id="code",
-                              label="属性のコード", span=(T_CODE, T_RETURN + 0.6), node=cn))
+                              draw=code_face(ctx, lit, underline, hits, k, cn), radius=18 * k, shadow=26, id="code",
+                              label="属性のコード", span=(T_CODE, T_RETURN + 0.6), node=cn, meta={"t": tc}))
 
         # 3 経路のカード
         for i, (pos, p, gone, t0) in enumerate(L["src"]):
@@ -235,8 +246,9 @@ def build(aspect: str = "1:1") -> Composition:
                 tw = E.t(wid, t)
                 wn = props(ctx, wid)
                 glow = impact(tw, [ARRIVE[i] - 0.4], 5) if tw >= ARRIVE[i] - 0.4 else 0.0
-                cards.append(Card(pos, (360, 132), rot=(14, 0, 0), draw=way_face(i, glow, wn), radius=16, shadow=18,
-                                  id=wid, label=f"経路: {WAYS[i][0]}", span=(t0, T_RETURN + 0.5), node=wn))
+                cards.append(Card(pos, (360, 132), rot=(14, 0, 0), draw=way_face(ctx, i, glow, wn), radius=16,
+                                  shadow=18, id=wid, label=f"経路: {WAYS[i][0]}", span=(t0, T_RETURN + 0.5), node=wn,
+                                  meta={"t": tw}))
 
         # 配線は 3D の端点を写してから 2D で描く (カードの奥行きに追従させる)
         # 灰色の線と区間を共有するので、青い HTTP API の線を最後に描く
@@ -257,43 +269,52 @@ def build(aspect: str = "1:1") -> Composition:
     # ------------------------------------------------------------ 左下の文字 (ワードマーク → 見出し → 見出し → ワードマーク)
     def headline(c0, ctx, id: str, label: str, small: str, t0: float, t1: float):
         with node(c0, ctx, id, origin=(MARGIN, H - MARGIN), label=f"見出し {id}", span=(t0, t1)) as n:
-            _headline(n, ctx, n.prop("text", label), n.prop("small", small), t0, t1)
+            _headline(n, ctx, id, label, small, t0, t1)
 
-    def _headline(n, ctx, label, small, t0, t1):
-        c, t = n.c, n.t
-        p = rules.enter("headline", t, t0)
-        q = rules.leave("headline", t, t1)
-        if p <= 0 or q <= 0:
-            return
-        fg, accent = n.prop("color", "#ECECEF"), n.prop("small_color", P.YELLOW)
-        size = text.fit_size(label, W - 2 * MARGIN, axes={"wght": 900, "wdth": 112})
-        c.save()
-        # 抜ける見出しは上へ、入る見出しは下から。入れ替えの間に空白のコマを作らない
-        c.clipRect(skia.Rect.MakeLTRB(0, H - MARGIN - size * 0.8, W, H), skia.ClipOp.kIntersect, True)
-        c.translate(MARGIN, H - MARGIN - (1 - q) * size + (1 - min(p, 1.0)) * size)
-        s = rules.scale_in("headline", min(p, 1.0))
-        c.scale(s, s)
-        text.text(c, label, 0, 0, size=size, axes={"wght": 900, "wdth": 112}, color=fg, alpha=min(p, 1.0) * q)
-        c.restore()
-        text.text(c, small, MARGIN, H - MARGIN - size * 0.86, font=MONO, size=24, color=accent,
-                  alpha=progress(t, t0 + 0.2, t0 + 0.5) * q)
+    def _headline(n, ctx, id, label, small, t0, t1):
+        size = 0.0
+        with node(n.c, ctx, f"{id}.title", origin=(MARGIN, H - MARGIN), label=f"見出し {id}: 本文") as m:
+            label = m.prop("text", label)
+            size = text.fit_size(label, W - 2 * MARGIN, axes={"wght": 900, "wdth": 112})
+            p, q = rules.enter("headline", m.t, t0), rules.leave("headline", m.t, t1)
+            if p > 0 and q > 0:
+                c = m.c
+                c.save()
+                # 抜ける見出しは上へ、入る見出しは下から。入れ替えの間に空白のコマを作らない
+                c.clipRect(skia.Rect.MakeLTRB(0, H - MARGIN - size * 0.8, W, H), skia.ClipOp.kIntersect, True)
+                c.translate(MARGIN, H - MARGIN - (1 - q) * size + (1 - min(p, 1.0)) * size)
+                s = rules.scale_in("headline", min(p, 1.0))
+                c.scale(s, s)
+                text.text(c, label, 0, 0, size=size, axes={"wght": 900, "wdth": 112},
+                          color=m.prop("color", "#ECECEF"), alpha=min(p, 1.0) * q)
+                c.restore()
+        with node(n.c, ctx, f"{id}.small", origin=(MARGIN, H - MARGIN - size * 0.86), label=f"見出し {id}: 小見出し") as m:
+            q = rules.leave("headline", m.t, t1)
+            a = progress(m.t, t0 + 0.2, t0 + 0.5) * q
+            if a > 0:
+                text.text(m.c, m.prop("text", small), MARGIN, H - MARGIN - size * 0.86, font=MONO,
+                          size=m.prop("size", 24), color=m.prop("color", P.YELLOW), alpha=a)
 
     def wordmark(c0, ctx, alpha: float, rise: float):
         with node(c0, ctx, "wordmark", origin=(MARGIN, H - MARGIN), label="ワードマーク", span=(T_WORDMARK, LOOP)) as n:
             _wordmark(n, alpha, rise)
 
     def _wordmark(n, alpha, rise):
-        c = n.c
+        ctx = n.ctx
         s = 92
-        tagline = n.prop("tagline", "Unity commands for humans, tests & AI agents")
         x, y = MARGIN, H - MARGIN - 80 + rise
-        logo_mark(c, x, y, s, alpha=alpha)
-        wl = text.shape("Liminal", "sans", 84, {"wght": 900})
-        text.text(c, "Liminal", x + s * 1.2, y + s * 0.82, size=84, axes={"wght": 900}, color=pal.fg, alpha=alpha)
-        text.text(c, "Palette", x + s * 1.2 + wl.width, y + s * 0.82, size=84, axes={"wght": 900},
-                  color=pal.blue, alpha=alpha)
-        text.text(c, tagline, x, y - 26, font=MONO, size=22,
-                  color=pal.dim, alpha=alpha)
+        with node(n.c, ctx, "wordmark.logo", origin=(x, y), label="ワードマーク: ロゴ") as m:
+            logo_mark(m.c, x, y, s, alpha=alpha)
+        with node(n.c, ctx, "wordmark.name", origin=(x + s * 1.2, y + s * 0.82), label="ワードマーク: 名前") as m:
+            a, b = m.prop("left", "Liminal"), m.prop("right", "Palette")
+            wl = text.shape(a, "sans", 84, {"wght": 900})
+            text.text(m.c, a, x + s * 1.2, y + s * 0.82, size=84, axes={"wght": 900}, color=m.prop("left_color", "#ECECEF"),
+                      alpha=alpha)
+            text.text(m.c, b, x + s * 1.2 + wl.width, y + s * 0.82, size=84, axes={"wght": 900},
+                      color=m.prop("right_color", P.BLUE), alpha=alpha)
+        with node(n.c, ctx, "wordmark.tagline", origin=(x, y - 26), label="ワードマーク: タグライン") as m:
+            text.text(m.c, m.prop("text", "Unity commands for humans, tests & AI agents"), x, y - 26, font=MONO,
+                      size=22, color=pal.dim, alpha=alpha)
 
     @scene(0, None, z=5, fixed=True)
     def captions(c, ctx):
