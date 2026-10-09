@@ -208,10 +208,12 @@ class Studio(Previewer):
                 r = FrameRenderer(comp, 0.15, False, False)
                 E = nodes_mod.edits_of(comp)
                 seen_at: dict[str, list[float]] = {}
+                parents: dict[str, str | None] = {}
                 for f in range(0, comp.nframes, max(int(comp.fps / 4), 1)):
                     r.draw(f / comp.fps, f)
-                    for k in E.seen:
+                    for k, v in E.seen.items():
                         seen_at.setdefault(k, []).append(f / comp.fps)
+                        parents[k] = v.parent
                 step = max(int(comp.fps / 4), 1) / comp.fps
 
                 def runs(ts):
@@ -225,6 +227,7 @@ class Studio(Previewer):
 
                 if version == self.version:
                     self.node_index = {k: {"label": E.labels.get(k, k), "span": E.spans.get(k), "runs": runs(v),
+                                           "parent": parents.get(k),
                                            "seen": [min(v), max(v) + step]} for k, v in seen_at.items()}
             except Exception:
                 pass
@@ -241,7 +244,7 @@ class Studio(Previewer):
             out = []
             for s in E.seen.values():
                 l, t, r, b = s.bounds
-                out.append({"id": s.id, "label": s.label, "space": s.space, "span": s.span,
+                out.append({"id": s.id, "label": s.label, "space": s.space, "span": s.span, "parent": s.parent,
                             "box": [l / w, t / h, r / w, b / h], "origin": [s.origin[0] / w, s.origin[1] / h],
                             "props": s.props, "edits": E.of(s.id)})
         return out
@@ -268,6 +271,7 @@ class Studio(Previewer):
             "tune": c.tune.schema() if c.tune else [], "notes": self.notes.load(), "findings": self.findings,
             "peaks": self.peaks, "job": self.job.info(), "output": self.output, "loop": c.loop,
             "nodes": getattr(self, "node_index", {}), "edits": nodes_mod.edits_of(c).data,
+            "audio_key": f"{Path(self.audio_path).stat().st_mtime}" if self.audio_path else None,
         })
         return base
 
