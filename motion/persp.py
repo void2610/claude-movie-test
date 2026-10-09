@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field, replace
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 import skia
@@ -97,6 +97,11 @@ class Card:
     two_sided: bool = False
     shadow: float = 0.0                  # 影のぼかし量 (0 で無し)
     meta: dict = field(default_factory=dict)
+    id: str | None = None                # スタジオで編集できる要素の名前 (nodes.Edits の差分を受ける)
+    label: str | None = None
+    span: tuple[float, float] | None = None
+    node: Any = None                     # 中身の文言・色を nodes.Node.prop で読んだ場合、その Node
+    opacity: float = 1.0
 
     def corners(self) -> np.ndarray:
         w, h = self.size
@@ -107,30 +112,73 @@ class Card:
         return _rot(*self.rot) @ np.array([0.0, 0.0, -1.0])
 
 
-def draw_cards(c: skia.Canvas, cam: Camera, cards: list[Card], near: float = 10.0) -> None:
-    """カードを奥から順に描く。カメラの後ろにはみ出すカードは描かない。"""
+def _apply_edits(card: Card, edits) -> Card | None:
+    o = edits.of(card.id)
+    if o.get("hidden"):
+        return None
+    if not o:
+        return card
+    cx, cy, cz = card.center
+    s = o.get("scale", 1.0)
+    yaw, pitch, roll = card.rot
+    return replace(card, center=(cx + o.get("dx", 0.0), cy + o.get("dy", 0.0), cz + o.get("dz", 0.0)),
+                   size=(card.size[0] * s, card.size[1] * s), rot=(yaw, pitch, roll + o.get("rot", 0.0)),
+                   opacity=card.opacity * o.get("opacity", 1.0), draw=_scaled(card.draw, s))
+
+
+def _scaled(fn, s):
+    if fn is None or s == 1.0:
+        return fn
+
+    def f(c):
+        c.scale(s, s)
+        fn(c)
+    return f
+
+
+def draw_cards(c: skia.Canvas, cam: Camera, cards: list[Card], near: float = 10.0, edits=None) -> None:
+    """カードを奥から順に描く。カメラの後ろにはみ出すカードは描かない。edits を渡すと id つきのカードに差分を当てる。"""
+    from .nodes import Seen
     items = []
     for card in cards:
+        if edits is not None and card.id:
+            edits.labels[card.id] = card.label or card.id
+            if card.span:
+                edits.spans[card.id] = card.span
+            card = _apply_edits(card, edits)
+            if card is None:
+                continue
         q = cam.project(card.corners())
         if (q[:, 2] < near).any():
             continue
         items.append((q[:, 2].mean(), card, q))
     for _, card, q in sorted(items, key=lambda x: -x[0]):
-        _draw_card(c, cam, card, q)
+        if card.opacity < 1.0:
+            c.saveLayerAlpha(None, int(round(max(card.opacity, 0) * 255)))
+        drawn = _draw_card(c, cam, card, q)
+        if card.opacity < 1.0:
+            c.restore()
+        if drawn and edits is not None and card.id:
+            m = c.getTotalMatrix()
+            pts = [m.mapXY(float(x), float(y)) for x, y in q[:, :2]]
+            xs, ys = [p.x() for p in pts], [p.y() for p in pts]
+            org = m.mapXY(float(q[:, 0].mean()), float(q[:, 1].mean()))
+            edits.note(Seen(card.id, card.label or card.id, (min(xs), min(ys), max(xs), max(ys)), (org.x(), org.y()),
+                            card.node.props if card.node else {}, card.span, "3d"))
 
 
-def _draw_card(c: skia.Canvas, cam: Camera, card: Card, q: np.ndarray) -> None:
+def _draw_card(c: skia.Canvas, cam: Camera, card: Card, q: np.ndarray) -> bool:
     w, h = card.size
     # 2D の符号付き面積が負なら裏面がこちらを向いている
     area = sum(q[i, 0] * q[(i + 1) % 4, 1] - q[(i + 1) % 4, 0] * q[i, 1] for i in range(4))
     back = area < 0
     if back and not card.two_sided:
-        return
+        return False
     m = skia.Matrix()
     src = [skia.Point(0, 0), skia.Point(w, 0), skia.Point(w, h), skia.Point(0, h)]
     dst = [skia.Point(float(x), float(y)) for x, y in q[:, :2]]
     if not m.setPolyToPoly(src, dst):
-        return
+        return False
     rr = skia.RRect.MakeRectXY(skia.Rect.MakeWH(w, h), card.radius, card.radius)
     if card.shadow > 0:
         sp = skia.Paint(AntiAlias=True, Color=skia.Color(0, 0, 0, 110))
@@ -154,6 +202,7 @@ def _draw_card(c: skia.Canvas, cam: Camera, card: Card, q: np.ndarray) -> None:
         if dark > 0.003:
             c.drawRect(skia.Rect.MakeWH(w, h), skia.Paint(Color=skia.Color(0, 0, 0, int(255 * min(dark, 1)))))
     c.restore()
+    return True
 
 
 def grid_floor(c: skia.Canvas, cam: Camera, y: float, *, extent: float = 4000, step: float = 160,

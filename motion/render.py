@@ -39,6 +39,7 @@ def load_project(path: str | Path) -> Composition:
     spec.loader.exec_module(mod)
     params = project_params()
     comp: Composition = mod.build(**params) if params else mod.build()
+    comp.project_dir = str(p.parent)
     if comp.name == "untitled":
         comp.name = p.parent.name
         # パラメータ違いの書き出し (縦長版など) が同じファイル名で上書きし合わないようにする
@@ -73,6 +74,8 @@ class FrameRenderer:
         c = self.surface.getCanvas()
         c.resetMatrix()
         c.clear(comp.background.skia())
+        from .nodes import edits_of
+        edits_of(comp).begin_frame()
         c.save()
         c.scale(self.scale, self.scale)
         for s in self.scenes:
