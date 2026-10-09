@@ -13,6 +13,7 @@ import skia
 
 from motion import Composition, Palette, audio, draw, post, rules, scene, sfx, text
 from motion.anim import clamp, impact, lerp, progress
+from motion.checks import Check, color_along
 from motion.persp import Camera, Card, draw_cards
 from motion.shots import ShotList
 from motion.texture import misregister
@@ -28,6 +29,7 @@ COMMANDS = ["Player/Health/Set", "Player/Health/Reset", "Player/Teleport", "Enem
 CODE = ['[LiminalCommand("Player/Health/Set")]', "public void SetHealth(int value)", "    => Hp.Value = value;"]
 QUERY = "player health set"
 LOOP = 12.0
+MARGIN = 76           # 正方形のセーフエリア (端から 7%)
 
 # タイミング (秒)。音もここから引く
 T_TYPE = 0.3          # 検索語の入力開始 (1 秒に 12 文字)
@@ -130,12 +132,46 @@ def build(aspect: str = "1:1") -> Composition:
         return f
 
     # ------------------------------------------------------------ 空間
-    @scene(0, None)
-    def world(c, ctx):
-        t = ctx.t
+    def layout(t: float, ctx) -> dict:
+        """カメラと各カードの位置。描画と検査 (comp.checks) の両方から同じ値を引く。"""
         # カメラは 12 秒周期の滑らかな揺れだけにする (style.md: 活発さ 2。周期関数なのでループの継ぎ目が出ない)
         cam = Camera.default(ctx).orbit(yaw=-10 + 5 * math.sin(phase(t)), pitch=6 + 2 * math.sin(phase(t) + 1.0))
         cam = cam.dolly(1.02 + 0.03 * (1 - math.cos(phase(t))) / 2)
+        come = clamp(rules.enter("panel", t, T_CODE))
+        go = progress(t, T_RETURN, T_RETURN + 0.6, rules.EXIT)
+        # 右に寄ったまま奥へ去る (中央へ戻すと、まだ残っている 3 経路のカードに重なる)
+        shift = progress(t, T_SHIFT, T_SHIFT + 0.6, rules.MOVE)
+        k = lerp(1.5, 1.0, shift)
+        target = (lerp(W * 0.5, W * 0.71, shift), lerp(H * 0.4, H * 0.47, shift), 700 * (1 - come) + 600 * go)
+        src = []
+        for i in range(3):
+            t0 = rules.stagger(i, 3, T_WAYS, gap=0.5)
+            p = clamp(rules.enter("panel", t, t0))
+            out = progress(t, T_RETURN + i * 0.08, T_RETURN + 0.5 + i * 0.08, rules.EXIT)
+            src.append(((W * 0.19, H * (0.25 + 0.22 * i), 900 * (1 - p) + 900 * out), p, out, t0))
+        return {"cam": cam, "come": come, "go": go, "k": k, "target": target, "src": src}
+
+    def wires(t: float, ctx) -> list[tuple[int, list[tuple[float, float]], float]]:
+        """見えている配線の (経路番号, 折れ線の点, 描き進み具合)。"""
+        if not (T_WAYS < t < T_RETURN + 0.6):
+            return []
+        L = layout(t, ctx)
+        cam, target, k = L["cam"], L["target"], L["k"]
+        tq = cam.project(np.array([[target[0] - 280 * k, target[1], target[2]]]))[0]
+        out = []
+        for i, (pos, p, gone, t0) in enumerate(L["src"]):
+            if p * (1 - gone) < 0.6:
+                continue
+            sq = cam.project(np.array([[pos[0] + 180, pos[1], pos[2]]]))[0]
+            mid = (sq[0] + tq[0]) / 2
+            wp = progress(t, t0 + 0.35, t0 + 0.9, rules.MOVE) * (1 - progress(t, T_RETURN - 0.3, T_RETURN))
+            out.append((i, [(sq[0], sq[1]), (mid, sq[1]), (mid, tq[1]), (tq[0], tq[1])], wp))
+        return out
+
+    @scene(0, None)
+    def world(c, ctx):
+        t = ctx.t
+        L = layout(t, ctx)
         cards = []
 
         # パレット: 0 秒で既に開いている。裏返って消え、最後に表へ戻る
@@ -146,47 +182,30 @@ def build(aspect: str = "1:1") -> Composition:
         # 属性のカード
         hits = sum(t >= a for a in ARRIVE) if t < T_RETURN + 0.4 else 0
         lit = impact(t, ARRIVE + [T_UNDERLINE], 6)
-        come = clamp(rules.enter("panel", t, T_CODE))
-        go = progress(t, T_RETURN, T_RETURN + 0.6, rules.EXIT)
-        shift = progress(t, T_SHIFT, T_SHIFT + 0.6, rules.MOVE) * (1 - progress(t, T_RETURN - 0.4, T_RETURN, rules.MOVE))
-        k = lerp(1.5, 1.0, shift)
-        target = (lerp(W * 0.5, W * 0.71, shift), lerp(H * 0.4, H * 0.47, shift), 700 * (1 - come) + 600 * go)
-        underline = progress(t, T_UNDERLINE, T_UNDERLINE + 0.4, rules.ENTER) * (1 - go)
-        if come > 0.02 and go < 0.98:
-            cards.append(Card(target, (560 * k, 250 * k), rot=(-8, 0, 0), draw=code_face(lit, underline, hits, k),
-                              radius=18 * k, shadow=26))
+        k = L["k"]
+        underline = progress(t, T_UNDERLINE, T_UNDERLINE + 0.4, rules.ENTER) * (1 - L["go"])
+        if L["come"] > 0.02 and L["go"] < 0.98:
+            cards.append(Card(L["target"], (560 * k, 250 * k), rot=(-8, 0, 0),
+                              draw=code_face(lit, underline, hits, k), radius=18 * k, shadow=26))
 
         # 3 経路のカード
-        src = []
-        for i in range(3):
-            t0 = rules.stagger(i, 3, T_WAYS, gap=0.5)
-            p = clamp(rules.enter("panel", t, t0))
-            out = progress(t, T_RETURN + i * 0.08, T_RETURN + 0.5 + i * 0.08, rules.EXIT)
-            z = 900 * (1 - p) + 900 * out
-            pos = (W * 0.19, H * (0.25 + 0.22 * i), z)
-            if p > 0.02 and out < 0.98:
+        for i, (pos, p, gone, t0) in enumerate(L["src"]):
+            if p > 0.02 and gone < 0.98:
                 glow = impact(t, [ARRIVE[i] - 0.4], 5) if t >= ARRIVE[i] - 0.4 else 0.0
                 cards.append(Card(pos, (360, 132), rot=(14, 0, 0), draw=way_face(i, glow), radius=16, shadow=18))
-            src.append((pos, p * (1 - out), t0))
 
         # 配線は 3D の端点を写してから 2D で描く (カードの奥行きに追従させる)
-        if T_WAYS < t < T_RETURN + 0.6:
-            tq = cam.project(np.array([[target[0] - 280 * k, target[1], target[2]]]))[0]
-            for i, (pos, vis, t0) in enumerate(src):
-                if vis < 0.6:
-                    continue
-                sq = cam.project(np.array([[pos[0] + 180, pos[1], pos[2]]]))[0]
-                mid = (sq[0] + tq[0]) / 2
-                wire = draw.path([(sq[0], sq[1]), (mid, sq[1]), (mid, tq[1]), (tq[0], tq[1])])
-                wp = progress(t, t0 + 0.35, t0 + 0.9, rules.MOVE) * (1 - progress(t, T_RETURN - 0.3, T_RETURN))
-                c.drawPath(draw.trim(wire, 0, wp), draw.paint(pal.blue if i == 1 else pal.dim, stroke=3))
-                u = progress(t, ARRIVE[i] - 0.4, ARRIVE[i], rules.EXIT)
-                if 0 < u < 1:
-                    m = skia.PathMeasure(wire, False)
-                    pt, _ = m.getPosTan(m.getLength() * u)
-                    draw.circle(c, pt.x(), pt.y(), 13, pal.yellow, blur=9)
-                    draw.circle(c, pt.x(), pt.y(), 6, "#FFFFFF")
-        draw_cards(c, cam, cards)
+        # 灰色の線と区間を共有するので、青い HTTP API の線を最後に描く
+        for i, pts, wp in sorted(wires(t, ctx), key=lambda w: w[0] == 1):
+            wire = draw.path(pts)
+            c.drawPath(draw.trim(wire, 0, wp), draw.paint(pal.blue if i == 1 else pal.dim, stroke=3))
+            u = progress(t, ARRIVE[i] - 0.4, ARRIVE[i], rules.EXIT)
+            if 0 < u < 1:
+                m = skia.PathMeasure(wire, False)
+                pt, _ = m.getPosTan(m.getLength() * u)
+                draw.circle(c, pt.x(), pt.y(), 13, pal.yellow, blur=9)
+                draw.circle(c, pt.x(), pt.y(), 6, "#FFFFFF")
+        draw_cards(c, L["cam"], cards)
 
     # ------------------------------------------------------------ 左下の文字 (ワードマーク → 見出し → 見出し → ワードマーク)
     def headline(c, ctx, label: str, small: str, t0: float, t1: float):
@@ -195,21 +214,21 @@ def build(aspect: str = "1:1") -> Composition:
         q = rules.leave("headline", t, t1)
         if p <= 0 or q <= 0:
             return
-        size = text.fit_size(label, W * 0.98, axes={"wght": 900, "wdth": 112})
+        size = text.fit_size(label, W - 2 * MARGIN, axes={"wght": 900, "wdth": 112})
         c.save()
         # 抜ける見出しは上へ、入る見出しは下から。入れ替えの間に空白のコマを作らない
-        c.clipRect(skia.Rect.MakeLTRB(-W, H - 70 - size * 0.8, W * 2, H), skia.ClipOp.kIntersect, True)
-        c.translate(-W * 0.02, H - 70 - (1 - q) * size + (1 - min(p, 1.0)) * size)
+        c.clipRect(skia.Rect.MakeLTRB(0, H - MARGIN - size * 0.8, W, H), skia.ClipOp.kIntersect, True)
+        c.translate(MARGIN, H - MARGIN - (1 - q) * size + (1 - min(p, 1.0)) * size)
         s = rules.scale_in("headline", min(p, 1.0))
         c.scale(s, s)
         text.text(c, label, 0, 0, size=size, axes={"wght": 900, "wdth": 112}, color=pal.fg, alpha=min(p, 1.0) * q)
         c.restore()
-        text.text(c, small, 34, H - 70 - size * 0.86, font=MONO, size=24, color=pal.yellow,
+        text.text(c, small, MARGIN, H - MARGIN - size * 0.86, font=MONO, size=24, color=pal.yellow,
                   alpha=progress(t, t0 + 0.2, t0 + 0.5) * q)
 
     def wordmark(c, ctx, alpha: float, rise: float):
         s = 92
-        x, y = 40, H - 150 + rise
+        x, y = MARGIN, H - MARGIN - 80 + rise
         logo_mark(c, x, y, s, alpha=alpha)
         wl = text.shape("Liminal", "sans", 84, {"wght": 900})
         text.text(c, "Liminal", x + s * 1.2, y + s * 0.82, size=84, axes={"wght": 900}, color=pal.fg, alpha=alpha)
@@ -231,6 +250,18 @@ def build(aspect: str = "1:1") -> Composition:
             a = rules.leave("micro", t, T_FLIP - 0.05)
             wordmark(c, ctx, a, 0.0)
 
+    def http_wire_is_blue(img, ctx):
+        """ユーザー指摘 (2026-10-04, 2026-10-09): HTTP API の線の合流区間が灰色の線に上書きされていた。"""
+        ws = {i: pts for i, pts, wp in wires(ctx.t, ctx) if wp > 0.99}
+        if 1 not in ws:
+            return "HTTP API の線が描かれていない"
+        (_, _), (mx_, y0), (_, y1), (x1, _) = ws[1]
+        # 縦の合流区間と、矢印までの横の区間を、端を避けて調べる
+        pts = [(mx_, y0 + (y1 - y0) * u) for u in np.linspace(0.15, 0.85, 12)]
+        pts += [(mx_ + (x1 - mx_) * u, y1) for u in np.linspace(0.2, 0.8, 8)]
+        return color_along(img, pts, "#3B82F6")
+
+    comp.checks.append(Check("HTTP API の線の合流区間は青", [8.3, 8.7, 9.6], http_wire_is_blue))
     comp.add(bg, world, captions)
     comp.post = [
         post.bloom(threshold=0.7, strength=0.35, radius=20),
