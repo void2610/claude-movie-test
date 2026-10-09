@@ -37,3 +37,20 @@ def test_latest_findings_parses_review_md(tmp_path):
     (tmp_path / "project.py").write_text("")
     st = Studio(str(tmp_path), 0.5, False, None)
     assert st.findings == [{"t": 8.3, "rule": "check: 青", "detail": "0/20 点"}]
+
+
+def test_apply_edits_renders_current_frame_without_reloading(tmp_path):
+    import shutil
+    from pathlib import Path
+    src = Path(__file__).parent / "fixtures" / "mini" / "project.py"
+    shutil.copy(src, tmp_path / "project.py")
+    st = Studio(str(tmp_path), 0.25, False, 1)
+    st.reload()
+    comp = st.comp
+    (tmp_path / "edits.json").write_text('{"x": {"dx": 10}}', encoding="utf-8")
+    v0 = st.version
+    v = st.apply_edits(30)
+    assert v == v0 + 1 and st.comp is comp          # 作品は読み直さない
+    assert 30 in st.frames                          # 今のコマは返す前に描き終えている
+    assert st.comp._edits.of("x") == {"dx": 10}
+    st._stop.set()

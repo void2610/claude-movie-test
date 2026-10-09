@@ -120,13 +120,15 @@ class Previewer:
         ok, buf = cv2.imencode(".jpg", cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 88])
         return buf.tobytes()
 
-    def _run_prefetch(self, version: int, stop: threading.Event) -> None:
+    def _run_prefetch(self, version: int, stop: threading.Event, start: int = 0) -> None:
         comp = self.comp
         n = comp.nframes
         h, w = self.renderer.h, self.renderer.w
+        # 今見ているコマから先に描く (編集の直後に近くのコマへシークしてもすぐ出るように)
+        order = list(range(start, n)) + list(range(0, start))
         try:
             with _pool(self.project, self.scale, self.mb, True, self.workers) as pool:
-                for f, buf in zip(range(n), pool.imap(_render_one, range(n), chunksize=2)):
+                for f, buf in zip(order, pool.imap(_render_one, order, chunksize=2)):
                     if stop.is_set():
                         pool.terminate()
                         return

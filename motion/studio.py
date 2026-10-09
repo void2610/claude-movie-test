@@ -130,16 +130,39 @@ class Studio(Previewer):
 
     def watch(self) -> None:
         import time
-        em = self._edits_mtime()
+        self._edits_known = self._edits_mtime()
         while True:
             m, e = self._mtime(), self._edits_mtime()
             if m != self.mtime:
-                self.mtime, em = m, e
+                self.mtime, self._edits_known = m, e
                 self.reload()
-            elif e != em:
-                em = e
-                self.reload(keep_audio=True)
+            elif e != self._edits_known and self.comp is not None:
+                # Claude やエディタが edits.json を直接書き換えた場合
+                self.apply_edits(0)
             time.sleep(0.15)
+
+    def apply_edits(self, f: int) -> int:
+        """edits.json の変更だけを反映する。作品は読み直さず差分を差し替え、今のコマを先に描いて返す。"""
+        with self.lock:
+            self._edits_known = self._edits_mtime()
+            self.comp._edits = nodes_mod.Edits(self.dir / "edits.json")
+            self.version += 1
+            self.frames = {}
+            self.frames[f] = self._encode(self.renderer.frame(f))
+            v = self.version
+        self._stop.set()
+        old, stop = self._prefetch, threading.Event()
+        self._stop = stop
+
+        def restart():
+            if old:
+                old.join()
+            if not stop.is_set():
+                self._run_prefetch(v, stop, f)
+        self._prefetch = threading.Thread(target=restart, daemon=True)
+        self._prefetch.start()
+        self._scan_nodes()
+        return v
 
     def reload(self, keep_audio: bool = False) -> None:
         if keep_audio and self.comp is not None:
@@ -301,8 +324,10 @@ def serve(project: str, port: int = 8766, scale: float = 0.5, motion_blur: bool 
                     else:
                         data.pop(body["id"], None)
                     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-                    return self._json(data)
-                return self._json(nodes_mod.save(path, body["id"], body.get("updates", {})))
+                else:
+                    data = nodes_mod.save(path, body["id"], body.get("updates", {}))
+                v = st.apply_edits(int(body.get("frame", 0)))
+                return self._json({"edits": data, "version": v})
             if u.path == "/notes/add":
                 st.notes.add(float(body["t"]), str(body["text"]))
                 return self._json({"ok": True})
