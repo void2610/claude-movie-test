@@ -84,6 +84,7 @@ PROJECT = '''"""{name}。制作の判断は brief.md / style.md / shotlist.md �
 from pathlib import Path
 
 from motion import Composition, Palette, post, rules, scene, text
+from motion.nodes import node
 from motion.shots import ShotList
 
 HERE = Path(__file__).parent
@@ -99,10 +100,14 @@ def build(aspect: str = "{aspect}") -> Composition:
     def placeholder(shot):
         @scene(shot.start, shot.end)
         def draw(c, ctx):
-            p = rules.enter("headline", ctx.t, shot.start)
-            text.text(c, shot.name.upper(), W * 0.08, H * 0.46, size=W * 0.07, axes={{"wght": 900}},
-                      color=pal.fg, alpha=min(p, 1.0))
-            text.text(c, shot.purpose, W * 0.08, H * 0.46 + W * 0.05, size=W * 0.022, color=pal.accent)
+            # 描く要素は node で名前を付けて囲む。スタジオで人間が直接動かした結果は edits.json に残る
+            with node(c, ctx, f"{{shot.name}}.title", origin=(W * 0.08, H * 0.46), label=f"{{shot.name}} 見出し",
+                      span=(shot.start, shot.end)) as n:
+                p = rules.enter("headline", n.t, shot.start)
+                text.text(n.c, n.prop("text", shot.name.upper()), W * 0.08, H * 0.46, size=W * 0.07,
+                          axes={{"wght": 900}}, color=n.prop("color", "#F2EEE6"), alpha=min(p, 1.0))
+                text.text(n.c, n.prop("sub", shot.purpose), W * 0.08, H * 0.46 + W * 0.05, size=W * 0.022,
+                          color=n.prop("sub_color", "#FF5A1F"))
         return draw
 
     comp.add(*[placeholder(s) for s in shots])
