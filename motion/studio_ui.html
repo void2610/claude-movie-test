@@ -3,8 +3,8 @@
 <style>
 :root{
   --bg:#0d0e11;--panel:#15161b;--panel2:#1c1d23;--line:#2a2c34;--fg:#e6e6ea;--dim:#8b8d97;--faint:#5a5c66;
-  --acc:#ff6a33;--sel:#4da3ff;--cue:#ff9a5c;--note:#facc15;--err:#ff5470;--ok:#4ade80;
-  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+  --acc:#ff6a33;--sel:#4da3ff;--selbg:#1d2b40;--cue:#ff9a5c;--note:#facc15;--err:#ff5470;--ok:#4ade80;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;--row:22px;--left:250px;
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 -apple-system,"Hiragino Sans",sans-serif;overflow:hidden}
@@ -13,11 +13,12 @@ button{background:var(--panel2);border:1px solid var(--line);border-radius:6px;p
 button:hover{border-color:var(--dim)}button:disabled{opacity:.45;cursor:default}
 button.pri{background:var(--acc);border-color:var(--acc);color:#140904;font-weight:600}
 button.sm{font-size:11px;padding:2px 8px}
-#app{display:grid;grid-template-columns:minmax(0,1fr) 340px;grid-template-rows:44px minmax(0,1fr) auto;height:100%}
-header{grid-column:1/-1;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--line)}
+button.ghost{background:none;border-color:transparent;color:var(--dim)}button.ghost:hover{color:var(--fg);border-color:var(--line)}
+#app{display:grid;grid-template-columns:minmax(0,1fr) 330px;grid-template-rows:44px minmax(0,1fr) var(--tlh,340px);height:100%}
+header{grid-column:1/-1;display:flex;align-items:center;gap:8px;padding:0 14px;border-bottom:1px solid var(--line)}
 header .name{font-weight:700}header .meta{color:var(--dim);font-family:var(--mono);font-size:12px}
 header .sp{flex:1}
-#job{font-family:var(--mono);font-size:12px;color:var(--dim);max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#job{font-family:var(--mono);font-size:12px;color:var(--dim);max-width:340px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #job.run{color:var(--note)}#job.bad{color:var(--err)}#job.good{color:var(--ok)}
 #stage{position:relative;background:#050506;min-height:0;overflow:hidden}
 #stage img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;user-select:none;-webkit-user-drag:none}
@@ -25,7 +26,8 @@ header .sp{flex:1}
 #err{position:absolute;inset:0;background:#1a0709ee;color:#ff9aa8;white-space:pre-wrap;font-family:var(--mono);font-size:12px;padding:18px;overflow:auto;display:none;z-index:3}
 #cache{position:absolute;left:0;bottom:0;height:2px;background:var(--acc);width:0;z-index:2}
 #busy{position:absolute;right:10px;top:10px;font-family:var(--mono);font-size:11px;color:var(--note);display:none;z-index:2}
-aside{grid-row:2/4;grid-column:2;border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0;background:var(--panel)}
+#hint{position:absolute;left:10px;bottom:10px;font-size:11px;color:var(--faint);z-index:2;pointer-events:none}
+aside{grid-row:2;grid-column:2;border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0;background:var(--panel)}
 .tabs{display:flex;border-bottom:1px solid var(--line)}
 .tabs button{flex:1;border:0;border-radius:0;background:none;padding:10px 0;color:var(--dim)}
 .tabs button.on{color:var(--fg);box-shadow:inset 0 -2px 0 var(--acc)}
@@ -34,8 +36,12 @@ aside{grid-row:2/4;grid-column:2;border-left:1px solid var(--line);display:flex;
 .pane{flex:1;overflow:auto;padding:12px 14px;display:none}.pane.on{display:block}
 h4{margin:14px 0 6px;font-size:11px;letter-spacing:.06em;color:var(--dim);font-weight:600}
 h4:first-child{margin-top:0}
-.sel-head{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
-.sel-head .lbl{font-weight:700;font-size:15px}.sel-head .id{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:2px;margin-bottom:4px;font-size:12px}
+.crumbs a{color:var(--dim);cursor:pointer;padding:1px 4px;border-radius:4px}.crumbs a:hover{background:var(--panel2);color:var(--fg)}
+.crumbs .sep{color:var(--faint)}
+.sel-title{font-weight:700;font-size:16px;margin:2px 0 0}.sel-id{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chips button{font-size:11px;padding:2px 9px;border-radius:12px}
 .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .fld{display:flex;flex-direction:column;gap:3px;min-width:0}
 .fld span{font-size:11px;color:var(--dim)}
@@ -48,10 +54,10 @@ h4:first-child{margin-top:0}
 .prop input[type=number]{width:74px;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:3px 5px;font-family:var(--mono);font-size:12px}
 .prop input[type=text]{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:5px 7px}
 .prop input[type=color]{width:44px;height:26px;border:1px solid var(--line);border-radius:4px;background:none;padding:0}
-.row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.row{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
 .list .it{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer}
 .list .it:hover{background:var(--panel2)}.list .it .id{font-family:var(--mono);font-size:11px;color:var(--dim);margin-left:auto}
-.list .it .dot{width:6px;height:6px;border-radius:3px;background:var(--acc)}
+.dot{width:6px;height:6px;border-radius:3px;background:var(--acc);flex:none}
 .empty{color:var(--dim);padding:6px 0}
 .addnote{display:flex;flex-direction:column;gap:6px;padding-bottom:12px;border-bottom:1px solid var(--line)}
 .addnote textarea{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px;min-height:58px;resize:vertical}
@@ -61,13 +67,33 @@ h4:first-child{margin-top:0}
 .item.err .t{color:var(--err)}.item.done .txt{text-decoration:line-through;color:var(--faint)}
 .item .txt{word-break:break-word}.item .rule{font-family:var(--mono);font-size:11px;color:var(--dim)}
 .item .x{border:0;background:none;color:var(--faint);padding:0 4px}
-#bottom{grid-column:1;border-top:1px solid var(--line);background:var(--panel)}
-#transport{display:flex;align-items:center;gap:8px;padding:7px 12px}
-#tc{font-family:var(--mono);font-size:12px;color:var(--dim);min-width:250px}
-#shotname{color:var(--fg);font-weight:600}
-#tlwrap{max-height:190px;overflow-y:auto}
-#tl{display:block;width:100%;cursor:crosshair}
-.help{color:var(--faint);font-size:11px;padding:4px 12px 8px}
+
+/* ---- タイムライン ---- */
+#bottom{grid-column:1/-1;border-top:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0;position:relative}
+#resize{position:absolute;left:0;right:0;top:-3px;height:6px;cursor:ns-resize;z-index:5}
+#transport{display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--line)}
+#tc{font-family:var(--mono);font-size:13px;color:var(--fg);min-width:96px}
+#tcsub{font-family:var(--mono);font-size:12px;color:var(--dim)}
+#shotname{color:var(--fg);font-weight:600;margin-left:8px}
+#zoomlbl{font-family:var(--mono);font-size:11px;color:var(--dim);min-width:52px;text-align:right}
+#tlscroll{flex:1;overflow:auto;min-height:0;position:relative}
+#tlgrid{display:grid;grid-template-columns:var(--left) minmax(0,1fr);min-width:0}
+.sticky{position:sticky;top:0;z-index:3;background:var(--panel)}
+#headL{border-right:1px solid var(--line);display:flex;flex-direction:column;justify-content:flex-end}
+#headL .lab{height:var(--h);display:flex;align-items:center;padding:0 10px;color:var(--dim);font-size:11px}
+#headL .lab.ruler{color:var(--faint);font-family:var(--mono);justify-content:space-between}
+#head{display:block;width:100%;cursor:ew-resize;border-bottom:1px solid var(--line)}
+#layers{border-right:1px solid var(--line)}
+#lanes{display:block;width:100%}
+.ly{height:var(--row);display:flex;align-items:center;gap:4px;padding-right:6px;cursor:pointer;white-space:nowrap;border-bottom:1px solid #1b1c21}
+.ly{scroll-margin-top:110px}.ly:hover{background:#1b1d24}.ly.on{background:var(--selbg)}.ly.off .nm{color:var(--faint)}
+.ly .tw{width:16px;text-align:center;color:var(--dim);font-size:10px;flex:none}
+.ly .tw.leaf{visibility:hidden}
+.ly .nm{overflow:hidden;text-overflow:ellipsis;font-size:12px}
+.ly .ic{width:14px;height:14px;flex:none;border-radius:3px;font-size:9px;display:flex;align-items:center;justify-content:center;color:var(--dim);border:1px solid var(--line)}
+.ly .sp{flex:1}.ly .eye{border:0;background:none;color:var(--faint);padding:0 3px;font-size:12px;visibility:hidden}
+.ly:hover .eye,.ly .eye.hid{visibility:visible}.ly .eye.hid{color:var(--err)}
+.help{color:var(--faint);font-size:11px;padding:4px 12px 6px;border-top:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-radius:3px;padding:0 4px;color:var(--dim)}
 </style></head>
 <body><div id="app">
@@ -78,7 +104,8 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-r
   <button id="bReview">レビュー</button><button id="bDraft">下書き</button><button id="bRender" class="pri">書き出し</button>
   <button id="bOpen" disabled>開く</button>
 </header>
-<div id="stage"><img id="img" alt=""><canvas id="ov"></canvas><div id="err"></div><div id="cache"></div><div id="busy">描き直し中…</div></div>
+<div id="stage"><img id="img" alt=""><canvas id="ov"></canvas><div id="err"></div><div id="cache"></div><div id="busy">描き直し中…</div>
+  <div id="hint">クリック: 外側の要素 · ダブルクリック: 中へ · ⌘クリック: 一番内側</div></div>
 <aside>
   <div class="tabs"><button data-p="elem" class="on">要素</button><button data-p="params">全体</button><button data-p="notes">メモ<span class="badge" id="nNotes">0</span></button><button data-p="finds">エラー<span class="badge" id="nErr">0</span></button></div>
   <div class="pane on" id="elem"></div>
@@ -91,12 +118,16 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-r
   </div>
   <div class="pane" id="finds"><div id="findList"></div></div>
 </aside>
-<div id="bottom">
-  <div id="transport"><button id="bPlay">▶</button><button id="bPrev">−1f</button><button id="bNext">+1f</button>
-    <span id="tc"></span><span id="shotname"></span><span style="flex:1"></span>
-    <label style="color:var(--dim);font-size:12px"><input type="checkbox" id="loopChk" checked> ループ再生</label></div>
-  <div id="tlwrap"><canvas id="tl"></canvas></div>
-  <div class="help">映像の要素をクリックで選択・ドラッグで移動・四隅で拡大縮小・上のつまみで回転 · 要素の列のバーをドラッグでタイミングをずらす · <kbd>⌥</kbd>+矢印 1px 移動 (<kbd>⇧</kbd> 10px) · <kbd>⌘Z</kbd> 元に戻す · <kbd>⇧⌘Z</kbd> やり直す · <kbd>Esc</kbd> 親へ / 選択解除 · <kbd>Space</kbd> 再生 · <kbd>←</kbd><kbd>→</kbd> 1 フレーム · <kbd>[</kbd><kbd>]</kbd> ショット · <kbd>N</kbd> メモ</div>
+<div id="bottom"><div id="resize" title="ドラッグで高さを変える"></div>
+  <div id="transport"><button id="bPlay" title="Space">▶</button><button id="bPrev" title="←">◀︎</button><button id="bNext" title="→">▶︎</button>
+    <span id="tc">0.00s</span><span id="tcsub"></span><span id="shotname"></span><span style="flex:1"></span>
+    <button class="ghost sm" id="zOut" title="縮小">−</button><span id="zoomlbl">全体</span><button class="ghost sm" id="zIn" title="拡大">＋</button><button class="ghost sm" id="zFit">全体を表示</button>
+    <label style="color:var(--dim);font-size:12px;margin-left:8px"><input type="checkbox" id="loopChk" checked> ループ</label></div>
+  <div id="tlscroll"><div id="tlgrid">
+    <div id="headL" class="sticky"></div><canvas id="head" class="sticky"></canvas>
+    <div id="layers"></div><canvas id="lanes"></canvas>
+  </div></div>
+  <div class="help">上の目盛り・波形をドラッグでシーク (<kbd>⇧</kbd> 拍に吸着) · <kbd>⌘</kbd>+ホイール / ピンチで拡大 · ホイール横 / <kbd>⇧</kbd>+ホイールで左右に移動 · バーをドラッグで出の時刻をずらす · <kbd>Space</kbd> 再生 · <kbd>←</kbd><kbd>→</kbd> 1 フレーム (<kbd>⇧</kbd> 1 拍) · <kbd>[</kbd><kbd>]</kbd> ショット · <kbd>⌥</kbd>+矢印 要素を 1px · <kbd>Esc</kbd> 親へ · <kbd>N</kbd> メモ · <kbd>⌘Z</kbd>/<kbd>⇧⌘Z</kbd></div>
 </div>
 </div>
 <audio id="aud" preload="auto"></audio>
@@ -104,7 +135,8 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-r
 const $=id=>document.getElementById(id);
 let I=null,ver=-1,cur=0,playing=false,inflight=false,pending=null,t0=0,f0=0;
 let NODES=[],nodesKey='',sel=null,hover=null,drag=null,undo=[],redo=[];
-const img=$('img'),aud=$('aud'),tl=$('tl'),tctx=tl.getContext('2d'),ov=$('ov'),octx=ov.getContext('2d');
+const open_=new Set();   // 開いているレイヤー
+const img=$('img'),aud=$('aud'),ov=$('ov'),octx=ov.getContext('2d'),head=$('head'),hctx=head.getContext('2d'),lanesC=$('lanes'),lctx=lanesC.getContext('2d');
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const fmt=t=>t.toFixed(2)+'s';
 const tNow=()=>cur/(I?I.fps:60);
@@ -112,10 +144,10 @@ const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',
 function post(u,b){return fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})}).then(r=>r.json())}
 
 // ================= 再生
-function show(f){if(!I)return;f=Math.max(0,Math.min(I.nframes-1,Math.round(f)));cur=f;
-  $('tc').textContent=`${fmt(f/I.fps)}  #${f}  ${Math.floor(f/I.fps/(240/I.bpm))+1}小節 ${Math.floor(f/I.fps/(60/I.bpm))%4+1}拍`;
-  const s=(I.shots||[]).find(s=>s.start<=f/I.fps&&f/I.fps<s.end);$('shotname').textContent=s?s.name:'';
-  $('noteAt').textContent=fmt(f/I.fps);drawTL();
+function show(f){if(!I)return;f=Math.max(0,Math.min(I.nframes-1,Math.round(f)));cur=f;const t=f/I.fps;
+  $('tc').textContent=fmt(t);$('tcsub').textContent=`#${f}  ${Math.floor(t/(240/I.bpm))+1}小節 ${Math.floor(t/(60/I.bpm))%4+1}拍`;
+  const s=(I.shots||[]).find(s=>s.start<=t&&t<s.end);$('shotname').textContent=s?s.name:'';
+  $('noteAt').textContent=fmt(t);followPlayhead();drawTL();
   if(inflight){pending=f;return}inflight=true;const im=new Image();
   im.onload=()=>{img.src=im.src;inflight=false;$('busy').style.display='none';if(pending!==null){const p=pending;pending=null;show(p)}else if(!playing)loadNodes()};
   im.onerror=()=>{inflight=false;setTimeout(()=>show(cur),200)};im.src=`/frame/${f}.jpg?v=${ver}`}
@@ -132,50 +164,73 @@ function toggle(){playing=!playing;$('bPlay').textContent=playing?'❚❚':'▶'
   else{aud.pause();loadNodes()}}
 function seekTo(f){show(f);if(playing){f0=cur;t0=performance.now();if(aud.src)aud.currentTime=cur/I.fps}}
 
+// ================= 要素の木
+const N=()=>(I&&I.nodes)||{};
+function parentOf(id){const n=NODES.find(x=>x.id===id);return n?n.parent:(N()[id]||{}).parent||null}
+function chainOf(id){const c=[];while(id){c.unshift(id);id=parentOf(id)}return c}
+function labelOf(id){const n=NODES.find(x=>x.id===id);return n?n.label:(N()[id]||{}).label||id}
+function childrenOf(id){return Object.keys(N()).filter(k=>(N()[k].parent||null)===id).sort((a,b)=>N()[a].seen[0]-N()[b].seen[0])}
+function visibleRows(){const out=[];const walk=(pid,d)=>childrenOf(pid).forEach(id=>{out.push([id,d]);if(open_.has(id))walk(id,d+1)});walk(null,0);return out}
+function reveal(id){chainOf(id).slice(0,-1).forEach(a=>open_.add(a))}
+
 // ================= 映像の上の要素
 function imgRect(){const W=ov.clientWidth,H=ov.clientHeight;if(!I)return{x:0,y:0,w:W,h:H};const a=I.width/I.height;
   let w=W,h=W/a;if(h>H){h=H;w=H*a}return{x:(W-w)/2,y:(H-h)/2,w,h}}
 const px=(n,R)=>({l:R.x+n.box[0]*R.w,t:R.y+n.box[1]*R.h,r:R.x+n.box[2]*R.w,b:R.y+n.box[3]*R.h,ox:R.x+n.origin[0]*R.w,oy:R.y+n.origin[1]*R.h});
 async function loadNodes(){if(!I||playing)return;const key=ver+':'+cur;if(key===nodesKey)return;nodesKey=key;
-  const f=cur;try{const r=await (await fetch(`/nodes/${f}?v=${ver}`)).json();if(f!==cur)return;NODES=r;drawOV();buildElem()}catch(e){}}
+  const f=cur;try{const r=await (await fetch(`/nodes/${f}?v=${ver}`)).json();if(f!==cur)return;NODES=r;drawOV();buildElem();buildLayers()}catch(e){}}
 function selNode(){return NODES.find(n=>n.id===sel)}
-function handles(b){const r=9;return{tl:[b.l,b.t],tr:[b.r,b.t],bl:[b.l,b.b],br:[b.r,b.b],rot:[(b.l+b.r)/2,b.t-26],r}}
+function handles(b){return{tl:[b.l,b.t],tr:[b.r,b.t],bl:[b.l,b.b],br:[b.r,b.b],rot:[(b.l+b.r)/2,b.t-26]}}
+// クリックした点を含む一番内側の要素から、外側までの鎖
+function hitChain(x,y){const R=imgRect();let best=null,ba=1e18;for(const n of NODES){const b=px(n,R);if(x>=b.l&&x<=b.r&&y>=b.t&&y<=b.b){const a=(b.r-b.l)*(b.b-b.t);if(a<ba){ba=a;best=n}}}
+  return best?chainOf(best.id).filter(id=>NODES.some(n=>n.id===id)):[]}
+// Figma と同じ: 普段は一番外側。選んでいる要素の中や兄弟なら、その階層のまま
+function pick(chain,mode){if(!chain.length)return null;if(mode==='deep')return chain[chain.length-1];
+  if(sel){const i=chain.indexOf(sel);if(i>=0)return mode==='in'?chain[Math.min(i+1,chain.length-1)]:sel;
+    const sc=chainOf(sel);let d=0;while(d<sc.length&&d<chain.length&&sc[d]===chain[d])d++;
+    if(d>0)return chain[Math.min(d,chain.length-1)]}
+  return mode==='in'?chain[Math.min(1,chain.length-1)]:chain[0]}
 function drawOV(){const dpr=devicePixelRatio||1,W=ov.clientWidth,H=ov.clientHeight;if(ov.width!==W*dpr||ov.height!==H*dpr){ov.width=W*dpr;ov.height=H*dpr}
   octx.setTransform(dpr,0,0,dpr,0,0);octx.clearRect(0,0,W,H);if(!I)return;const R=imgRect();
-  for(const n of NODES){if(n.id!==hover||n.id===sel)continue;const b=px(n,R);octx.setLineDash([4,3]);octx.strokeStyle='#ffffffaa';octx.lineWidth=1;octx.strokeRect(b.l,b.t,b.r-b.l,b.b-b.t);octx.setLineDash([]);
-    tag(b.l,b.t,n.label,'#ffffffcc','#000')}
-  const n=selNode();if(!n)return;let b=px(n,R);
+  const n=selNode();
+  // 選んだ要素の親の枠を薄く出して、今どの階層にいるかを見せる
+  if(n&&n.parent){const p=NODES.find(x=>x.id===n.parent);if(p){const b=px(p,R);octx.setLineDash([2,4]);octx.strokeStyle='#4da3ff88';octx.lineWidth=1;octx.strokeRect(b.l,b.t,b.r-b.l,b.b-b.t);octx.setLineDash([])}}
+  if(hover&&hover!==sel){const h=NODES.find(x=>x.id===hover);if(h){const b=px(h,R);octx.strokeStyle='#ffffffcc';octx.lineWidth=1;octx.strokeRect(b.l,b.t,b.r-b.l,b.b-b.t);tag(b.l,b.t,h.label,'#ffffffdd','#000')}}
+  if(!n)return;const b=px(n,R);
   octx.save();
-  if(drag&&drag.id===n.id){const d=drag;if(d.mode==='move'){octx.translate(d.dx,d.dy)}else{octx.translate(b.ox,b.oy);octx.rotate(d.drot*Math.PI/180);octx.scale(d.ds,d.ds);octx.translate(-b.ox,-b.oy)}}
+  if(drag&&drag.id===n.id&&drag.mode!=='lane'){const d=drag;if(d.mode==='move'){octx.translate(d.dx,d.dy)}else{octx.translate(b.ox,b.oy);octx.rotate(d.drot*Math.PI/180);octx.scale(d.ds,d.ds);octx.translate(-b.ox,-b.oy)}}
   octx.strokeStyle=css('--sel');octx.lineWidth=1.5;octx.strokeRect(b.l,b.t,b.r-b.l,b.b-b.t);
   const h=handles(b);octx.fillStyle='#fff';octx.strokeStyle=css('--sel');
   for(const k of['tl','tr','bl','br']){octx.fillRect(h[k][0]-4,h[k][1]-4,8,8);octx.strokeRect(h[k][0]-4,h[k][1]-4,8,8)}
   octx.beginPath();octx.moveTo((b.l+b.r)/2,b.t);octx.lineTo(h.rot[0],h.rot[1]);octx.stroke();octx.beginPath();octx.arc(h.rot[0],h.rot[1],5,0,7);octx.fill();octx.stroke();
   octx.beginPath();octx.arc(b.ox,b.oy,3,0,7);octx.fillStyle=css('--sel');octx.fill();
-  octx.restore();tag(b.l,b.t,n.label,css('--sel'),'#fff');
-  if(drag&&drag.id===n.id){let s='';if(drag.mode==='move')s=`x ${fmtn(drag.base.dx+drag.dx/drag.k)}  y ${fmtn(drag.base.dy+drag.dy/drag.k)}`;
-    else if(drag.mode==='scale')s=`×${(drag.base.scale*drag.ds).toFixed(2)}`;else s=`${(drag.base.rot+drag.drot).toFixed(1)}°`;tag(b.l,b.b+4,s,'#000c','#fff')}}
+  octx.restore();tag(b.l,b.t,chainOf(n.id).map(labelOf).map(s=>s.split(': ').pop()).join(' › '),css('--sel'),'#fff');
+  if(drag&&drag.id===n.id&&drag.mode!=='lane'&&drag.moved){let s='';if(drag.mode==='move')s=`x ${Math.round(drag.base.dx+drag.dx/drag.k)}  y ${Math.round(drag.base.dy+drag.dy/drag.k)}`;
+    else if(drag.mode==='scale')s=`×${(drag.base.scale*drag.ds).toFixed(2)}`;else s=`${(drag.base.rot+drag.drot).toFixed(1)}°`;tag(b.l,b.b+20,s,'#000c','#fff')}}
 function tag(x,y,s,bg,fg){octx.font='11px '+css('--mono');const w=octx.measureText(s).width+10;octx.fillStyle=bg;octx.fillRect(x,y-18,w,17);octx.fillStyle=fg;octx.fillText(s,x+5,y-5)}
-const fmtn=v=>Math.round(v);
-function hit(x,y){const R=imgRect();let best=null,ba=1e18;for(const n of NODES){const b=px(n,R);if(x>=b.l&&x<=b.r&&y>=b.t&&y<=b.b){const a=(b.r-b.l)*(b.b-b.t);if(a<ba){ba=a;best=n}}}return best}
 function onHandle(x,y){const n=selNode();if(!n)return null;const b=px(n,imgRect()),h=handles(b);
   if(Math.hypot(x-h.rot[0],y-h.rot[1])<9)return'rot';for(const k of['tl','tr','bl','br'])if(Math.abs(x-h[k][0])<8&&Math.abs(y-h[k][1])<8)return'scale';return null}
-const base=n=>({dx:n.edits.dx||0,dy:n.edits.dy||0,dz:n.edits.dz||0,scale:n.edits.scale??1,rot:n.edits.rot||0,opacity:n.edits.opacity??1,dt:n.edits.dt||0});
-ov.onmousedown=e=>{if(!I)return;if(playing)toggle();const r=ov.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
-  const hm=onHandle(x,y);let n=hm?selNode():hit(x,y);if(!n){select(null);return}select(n.id);
+const base=n=>{const e=n.edits||{};return{dx:e.dx||0,dy:e.dy||0,dz:e.dz||0,scale:e.scale??1,rot:e.rot||0,opacity:e.opacity??1,dt:e.dt||0}};
+const ovXY=e=>{const r=ov.getBoundingClientRect();return[e.clientX-r.left,e.clientY-r.top]};
+ov.onmousedown=e=>{if(!I)return;if(playing)toggle();const[x,y]=ovXY(e);
+  const hm=onHandle(x,y);const id=hm?sel:pick(hitChain(x,y),e.metaKey||e.ctrlKey?'deep':'click');
+  if(!id){select(null);return}if(id!==sel)select(id);const n=selNode();if(!n)return;
   const R=imgRect(),b=px(n,R);drag={id:n.id,mode:hm||'move',x0:x,y0:y,dx:0,dy:0,ds:1,drot:0,base:base(n),k:R.w/I.width,ox:b.ox,oy:b.oy,moved:false}};
-function ovMove(e){const r=ov.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
-  if(drag&&drag.mode!=='lane'){if(Math.hypot(x-drag.x0,y-drag.y0)<2&&!drag.moved)return;const d=drag;d.moved=true;
+ov.ondblclick=e=>{const[x,y]=ovXY(e);const id=pick(hitChain(x,y),'in');if(id)select(id)};
+function ovMove(e){const[x,y]=ovXY(e);
+  if(drag&&drag.mode!=='lane'){if(Math.hypot(x-drag.x0,y-drag.y0)<3&&!drag.moved)return;const d=drag;d.moved=true;
     if(d.mode==='move'){d.dx=x-d.x0;d.dy=y-d.y0;if(e.shiftKey){Math.abs(d.dx)>Math.abs(d.dy)?d.dy=0:d.dx=0}}
     else if(d.mode==='scale'){d.ds=Math.max(.05,Math.hypot(x-d.ox,y-d.oy)/Math.max(Math.hypot(d.x0-d.ox,d.y0-d.oy),1))}
     else{let a=(Math.atan2(y-d.oy,x-d.ox)-Math.atan2(d.y0-d.oy,d.x0-d.ox))*180/Math.PI;if(e.shiftKey)a=Math.round(a/15)*15;d.drot=a}
     drawOV();return}
-  if(e.target===ov&&!drag){const n=hit(x,y),h=onHandle(x,y);ov.style.cursor=h==='rot'?'grab':h?'nwse-resize':n?'move':'default';const id=n?n.id:null;if(id!==hover){hover=id;drawOV()}}}
+  if(e.target===ov&&!drag){const h=onHandle(x,y),id=h?null:pick(hitChain(x,y),e.metaKey||e.ctrlKey?'deep':'click');
+    ov.style.cursor=h==='rot'?'grab':h?'nwse-resize':id?'move':'default';if(id!==hover){hover=id;drawOV();markLayer()}}}
 addEventListener('mousemove',ovMove);
-addEventListener('mouseup',e=>{if(drag&&drag.mode!=='lane')ovMove(e);const d=drag;if(d&&d.mode==='lane')return;drag=null;if(!d||!d.moved){drawOV();return}
+addEventListener('mouseup',e=>{if(!drag||drag.mode==='lane'||drag.mode==='scrub')return;ovMove(e);const d=drag;drag=null;if(!d.moved){drawOV();return}
   const u={};if(d.mode==='move'){u.dx=Math.round(d.base.dx+d.dx/d.k);u.dy=Math.round(d.base.dy+d.dy/d.k)}
   else if(d.mode==='scale')u.scale=+(d.base.scale*d.ds).toFixed(3);else u.rot=+(d.base.rot+d.drot).toFixed(1);
   edit(d.id,u)});
+ov.onmouseleave=()=>{if(hover){hover=null;drawOV();markLayer()}};
 
 // ================= 差分の保存と履歴 (元に戻す・やり直す)
 const clone=o=>o==null?null:JSON.parse(JSON.stringify(o));
@@ -189,39 +244,41 @@ async function edit(id,updates){const prev=clone((I.edits||{})[id]);const d=awai
 async function replaceEdit(id,value){const prev=clone((I.edits||{})[id]);await sendEdit({id,replace:true,value});
   undo.push({kind:'edit',id,prev,next:clone(value)});redo=[];histUI()}
 async function applyStep(h,dir){const v=dir<0?h.prev:h.next;
-  if(h.kind==='edit'){if(h.id&&h.id!==sel&&NODES.some(n=>n.id===h.id))sel=h.id;await sendEdit({id:h.id,replace:true,value:v})}
+  if(h.kind==='edit'){sel=h.id;reveal(h.id);await sendEdit({id:h.id,replace:true,value:v})}
   else{$('busy').style.display='block';await post('/tune',v)}}
 async function doUndo(){const h=undo.pop();if(!h)return;histUI();await applyStep(h,-1);redo.push(h);histUI()}
 async function doRedo(){const h=redo.pop();if(!h)return;histUI();await applyStep(h,1);undo.push(h);histUI()}
-function afterEdit(){const n=selNode();if(n)n.edits=(I.edits||{})[n.id]||{};buildElem();drawOV();drawTL()}
+function afterEdit(){const n=selNode();if(n)n.edits=(I.edits||{})[n.id]||{};buildElem();buildLayers();drawOV();drawTL()}
 $('bUndo').onclick=doUndo;$('bRedo').onclick=doRedo;
 
 // ================= 要素のインスペクタ
-function select(id){sel=id;$('noteFor').textContent=id?` (${id})`:'';if(id)tab('elem');buildElem();drawOV();drawTL()}
-function buildElem(){const el=$('elem');const n=selNode();const E=(I&&I.edits)||{};
-  if(!n){const edited=Object.keys(E);
-    el.innerHTML=`<h4>この画面の要素</h4><div class="list" id="nl"></div><h4>変更した要素 (${edited.length})</h4><div class="list" id="el2"></div>
-      <div class="empty" style="margin-top:12px">映像の上をクリックすると要素を選べる。変更は作品の <code>edits.json</code> に要素の名前ごとに保存され、Claude がそれを読んで作業する。</div>`;
-    const nl=$('nl');if(!NODES.length)nl.innerHTML='<div class="empty">停止中のコマで表示される</div>';
-    const order=lanes().map(e=>e[0]);[...NODES].sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id)).forEach(x=>{const d=document.createElement('div');d.className='it';d.style.paddingLeft=(8+depth(x.id)*14)+'px';d.innerHTML=`${E[x.id]?'<span class="dot"></span>':''}<span>${esc(x.label)}</span><span class="id">${esc(x.id)}</span>`;d.onclick=()=>select(x.id);d.onmouseenter=()=>{hover=x.id;drawOV()};nl.append(d)});
-    edited.forEach(id=>{const d=document.createElement('div');d.className='it';d.innerHTML=`<span class="dot"></span><span>${esc((I.nodes[id]||{}).label||id)}</span><span class="id">${esc(Object.keys(E[id]).join(' '))}</span>`;
-      d.onclick=()=>{const s=(I.nodes[id]||{}).seen;if(s&&!(s[0]<=tNow()&&tNow()<=s[1]))seekTo(s[0]*I.fps+6);select(id)};$('el2').append(d)});return}
-  const b=base(n),ed=n.edits||{};const kids=NODES.filter(x=>x.parent===n.id);const par=n.parent?(NODES.find(x=>x.id===n.parent)||{id:n.parent,label:(I.nodes[n.parent]||{}).label||n.parent}):null;
+function select(id){sel=id;if(id)reveal(id);$('noteFor').textContent=id?` (${id})`:'';if(id)tab('elem');buildElem();buildLayers();drawOV();drawTL()}
+function buildElem(){const el=$('elem');const E=(I&&I.edits)||{};
+  if(!sel){const edited=Object.keys(E);
+    el.innerHTML=`<div class="empty">映像をクリックするか、下のレイヤーから要素を選ぶ。<br>クリックは外側の要素、ダブルクリックで中へ、⌘クリックで一番内側。</div>
+      <h4>変更した要素 (${edited.length})</h4><div class="list" id="el2"></div>
+      <div class="empty" style="margin-top:12px">変更は作品の <code>edits.json</code> に要素の名前ごとに保存され、Claude がそれを読んで作業する。</div>`;
+    edited.forEach(id=>{const d=document.createElement('div');d.className='it';d.innerHTML=`<span class="dot"></span><span>${esc(chainOf(id).map(labelOf).join(' › '))}</span><span class="id">${esc(Object.keys(E[id]).join(' '))}</span>`;
+      d.onclick=()=>{goTo(id);select(id)};$('el2').append(d)});return}
+  const n=selNode();const chain=chainOf(sel);
+  const crumbs=chain.map((id,i)=>i<chain.length-1?`<a data-id="${esc(id)}">${esc(labelOf(id).split(': ').pop())}</a><span class="sep">›</span>`:'').join('');
+  const kids=childrenOf(sel);
+  if(!n){el.innerHTML=`<div class="crumbs">${crumbs}</div><div class="sel-title">${esc(labelOf(sel))}</div><div class="sel-id">${esc(sel)}</div>
+    <div class="empty" style="margin-top:10px">この要素は今のコマに出ていない。<button class="sm" id="go">出ている時刻へ移動</button></div>`;
+    el.querySelectorAll('.crumbs a').forEach(a=>a.onclick=()=>select(a.dataset.id));$('go').onclick=()=>goTo(sel);return}
+  const b=base(n),ed=n.edits||{};
   const F=(k,lab,v,step)=>`<label class="fld${ed[k]!==undefined?' changed':''}"><span>${lab}</span><input type="number" data-k="${k}" step="${step}" value="${v}"></label>`;
-  el.innerHTML=`<div class="sel-head"><span class="lbl">${esc(n.label)}</span><span class="id">${esc(n.id)} · ${n.space}</span></div>
-    ${par?`<div class="list"><div class="it" id="goParent">↑ 親: ${esc(par.label)}<span class="id">Esc</span></div></div>`:''}
-    ${kids.length?`<h4>中の要素</h4><div class="list" id="kids"></div>`:''}
+  el.innerHTML=`<div class="crumbs">${crumbs}</div><div class="sel-title">${esc(n.label.split(': ').pop())}</div><div class="sel-id">${esc(n.id)} · ${n.space==='3d'?'2.5D のカード':'平面'}</div>
+    ${kids.length?`<div class="chips">${kids.map(k=>`<button data-id="${esc(k)}">${E[k]?'● ':''}${esc(labelOf(k).split(': ').pop())}</button>`).join('')}</div>`:''}
     <h4>配置</h4><div class="grid2">${F('dx','横へ (px)',b.dx,1)}${F('dy','縦へ (px)',b.dy,1)}${n.space==='3d'?F('dz','奥へ (px)',b.dz,10):''}${F('scale','大きさ (倍)',b.scale,.01)}${F('rot','回転 (°)',b.rot,1)}${F('opacity','不透明度',b.opacity,.05)}${F('dt','時刻のずれ (秒)',b.dt,.05)}</div>
     <label style="display:flex;gap:6px;align-items:center;margin-top:10px;color:var(--dim)"><input type="checkbox" id="hid" ${ed.hidden?'checked':''}> 隠す</label>
     <h4>中身</h4><div id="props"></div>
-    <div class="row"><button class="sm" id="rs">この要素の変更を消す</button><button class="sm" id="nt">この要素にメモ</button><button class="sm" id="ds">選択を解除</button></div>`;
-  if(par)$('goParent').onclick=()=>select(par.id);
-  kids.forEach(k=>{const d=document.createElement('div');d.className='it';d.innerHTML=`${E[k.id]?'<span class="dot"></span>':''}<span>${esc(k.label)}</span><span class="id">${esc(k.id)}</span>`;
-    d.onclick=()=>select(k.id);d.onmouseenter=()=>{hover=k.id;drawOV()};$('kids').append(d)});
+    <div class="row"><button class="sm" id="rs">この要素の変更を消す</button><button class="sm" id="nt">この要素にメモ</button></div>`;
+  el.querySelectorAll('.crumbs a').forEach(a=>a.onclick=()=>select(a.dataset.id));
+  el.querySelectorAll('.chips button').forEach(a=>{a.onclick=()=>select(a.dataset.id);a.onmouseenter=()=>{hover=a.dataset.id;drawOV()};a.onmouseleave=()=>{hover=null;drawOV()}});
   el.querySelectorAll('.fld input').forEach(i=>i.onchange=()=>edit(n.id,{[i.dataset.k]:+i.value}));
   $('hid').onchange=e=>edit(n.id,{hidden:e.target.checked||null});
-  $('rs').onclick=()=>replaceEdit(n.id,null);
-  $('nt').onclick=()=>{tab('notes');$('noteText').focus()};$('ds').onclick=()=>select(null);
+  $('rs').onclick=()=>replaceEdit(n.id,null);$('nt').onclick=()=>{tab('notes');$('noteText').focus()};
   const P=$('props'),keys=Object.keys(n.props||{});if(!keys.length)P.innerHTML='<div class="empty">この要素はコードで中身の値を公開していない</div>';
   keys.forEach(k=>{const p=n.props[k],changed=(ed.props||{})[k]!==undefined;const d=document.createElement('div');d.className='prop'+(changed?' changed':'');
     d.innerHTML=`<label>${esc(k)}</label><button class="sm">戻す</button><div class="ctl"></div>`;const c=d.querySelector('.ctl');let i;
@@ -231,6 +288,8 @@ function buildElem(){const el=$('elem');const n=selNode();const E=(I&&I.edits)||
     else{i=document.createElement('input');i.type='text';i.value=p.value}
     i.onchange=()=>edit(n.id,{props:{[k]:p.type==='number'?+i.value:p.type==='bool'?i.checked:i.value}});c.append(i);
     d.querySelector('button').onclick=()=>edit(n.id,{props:{[k]:null}});P.append(d)})}
+function goTo(id){const v=N()[id];if(!v)return;const t=tNow();const runs=v.runs||[v.seen];if(runs.some(([a,b])=>a<=t&&t<b))return;
+  const r=runs.find(([a])=>a>t)||runs[0];seekTo(Math.round((r[0]+Math.min(.3,(r[1]-r[0])/2))*I.fps))}
 
 // ================= 全体のパラメータ (tune)
 let tuneTimer=null,tunePending={},tunePrev={};
@@ -252,53 +311,90 @@ function buildParams(){const el=$('params');el.innerHTML='';const T=I.tune||[];
     d.querySelector('button').onclick=()=>{const pv={[p.key]:tuneVal(p.key)};post('/tune',{[p.key]:null});undo.push({kind:'tune',prev:pv,next:{[p.key]:null}});redo=[];histUI()};el.append(d)})}
 
 // ================= タイムライン
-const ROW={ruler:20,shots:28,wave:40,marks:26,lane:18};
-function depth(id){let d=0,p=((I&&I.nodes)||{})[id];while(p&&p.parent){d++;p=I.nodes[p.parent]}return d}
-function lanes(){const all=Object.entries((I&&I.nodes)||{}),out=[];
-  const walk=pid=>all.filter(([,v])=>(v.parent||null)===pid).sort((a,b)=>a[1].seen[0]-b[1].seen[0]).forEach(e=>{out.push(e);walk(e[0])});
-  walk(null);all.forEach(e=>{if(!out.includes(e))out.push(e)});return out}
-const LBL=120;
-function tw(){return tl.clientWidth-LBL}
-function x2t(x){return (x-LBL)/tw()*I.duration}function t2x(t){return LBL+t/I.duration*tw()}
-function drawTL(){if(!I)return;const L=lanes(),H=ROW.ruler+ROW.shots+ROW.wave+ROW.marks+L.length*ROW.lane+6;
-  const dpr=devicePixelRatio||1,W=tl.clientWidth;tl.style.height=H+'px';if(tl.width!==W*dpr||tl.height!==H*dpr){tl.width=W*dpr;tl.height=H*dpr}
-  const c=tctx;c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,W,H);const beat=60/I.bpm,bar=beat*4;
-  c.font='10px '+css('--mono');c.textBaseline='top';
-  for(let t=0;t<=I.duration+1e-6;t+=beat){const x=Math.round(t2x(t))+.5,isBar=Math.abs(t/bar-Math.round(t/bar))<1e-6;
-    c.strokeStyle=isBar?'#3a3c46':'#22242a';c.beginPath();c.moveTo(x,isBar?2:12);c.lineTo(x,H);c.stroke();if(isBar){c.fillStyle=css('--faint');c.fillText(String(Math.round(t/bar)+1),x+3,2)}}
-  let y=ROW.ruler;c.textBaseline='middle';c.fillStyle=css('--dim');c.font='11px sans-serif';
-  c.fillText('ショット',8,y+ROW.shots/2);c.fillText('音',8,y+ROW.shots+ROW.wave/2);c.fillText('キュー・メモ',8,y+ROW.shots+ROW.wave+ROW.marks/2);
-  (I.shots||[]).forEach((s,i)=>{const x=t2x(s.start),w=t2x(s.end)-x;c.fillStyle=i%2?'#262a3a':'#2c3247';c.fillRect(x+1,y+2,w-2,ROW.shots-4);
-    c.fillStyle=css('--fg');c.font='600 11px sans-serif';c.save();c.beginPath();c.rect(x+1,y,w-2,ROW.shots);c.clip();c.fillText(s.name,x+7,y+ROW.shots/2);c.restore()});
-  y+=ROW.shots;const P=I.peaks||[];c.fillStyle='#3b4a6e';for(let i=0;i<P.length;i++){const x=LBL+i/P.length*tw(),h=P[i]*(ROW.wave-6);c.fillRect(x,y+ROW.wave/2-h/2,Math.max(tw()/P.length,1),h)}
-  (I.cues||[]).forEach(t=>{c.fillStyle=css('--cue');c.fillRect(t2x(t)-1,y,2,ROW.wave)});
-  y+=ROW.wave;(I.findings||[]).forEach(f=>{const x=t2x(f.t);c.fillStyle=css('--err');c.beginPath();c.moveTo(x,y+4);c.lineTo(x+6,y+14);c.lineTo(x-6,y+14);c.fill()});
-  (I.notes||[]).forEach(n=>{c.fillStyle=n.done?css('--faint'):css('--note');c.beginPath();c.arc(t2x(n.t),y+ROW.marks/2,5,0,7);c.fill()});
-  y+=ROW.marks;const E=I.edits||{};
-  L.forEach(([id,v],i)=>{const yy=y+i*ROW.lane,on=id===sel;if(on){c.fillStyle='#1f2a3d';c.fillRect(0,yy,W,ROW.lane)}
-    c.fillStyle=on?css('--fg'):css('--dim');c.font='11px sans-serif';c.save();c.beginPath();c.rect(0,yy,LBL-6,ROW.lane);c.clip();c.fillText(v.label,8+depth(id)*12,yy+ROW.lane/2);c.restore();
+// 表示範囲 [vs, vs+vd] 秒。拡大すると 1 フレームを数十 px にできる
+let vs=0,vd=null;const HEAD=[['ruler','',24],['shots','ショット',24],['wave','音',38],['marks','キュー · メモ · エラー',20]];
+const HH=HEAD.reduce((a,r)=>a+r[2],0);
+function VD(){return vd??(I?I.duration:1)}
+function tlW(){return head.clientWidth}
+function t2x(t){return (t-vs)/VD()*tlW()}function x2t(x){return vs+x/tlW()*VD()}
+function clampView(){const D=I.duration;vd=Math.min(Math.max(VD(),3/I.fps*8),D);if(vd>=D-1e-9){vd=null;vs=0}else vs=Math.min(Math.max(vs,0),D-vd);
+  $('zoomlbl').textContent=vd?`${(I.duration/vd).toFixed(1)}×`:'全体'}
+function zoomAt(f,t){vd=VD()/f;vs=t-(t-vs)/f;clampView();drawTL()}
+function followPlayhead(){if(!I||vd==null||!playing)return;const t=tNow();if(t<vs||t>vs+VD())vs=t-VD()*.1,clampView()}
+function buildHeadL(){$('headL').innerHTML=HEAD.map(([k,l,h])=>`<div class="lab ${k}" style="--h:${h}px">${k==='ruler'?'<span>時間</span>':l}</div>`).join('')}
+function drawHead(){const dpr=devicePixelRatio||1,W=tlW(),H=HH;head.style.height=H+'px';if(head.width!==W*dpr||head.height!==H*dpr){head.width=W*dpr;head.height=H*dpr}
+  const c=hctx;c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,W,H);const beat=60/I.bpm,bar=beat*4,fps=I.fps;
+  // 目盛り: 拡大率に応じて小節・拍・フレーム
+  const pxPerS=W/VD();c.font='10px '+css('--mono');c.textBaseline='top';
+  if(pxPerS/fps>=6){for(let f=Math.floor(vs*fps);f<=(vs+VD())*fps;f++){const x=Math.round(t2x(f/fps))+.5;c.strokeStyle='#2b2d35';c.beginPath();c.moveTo(x,18);c.lineTo(x,24);c.stroke()}}
+  for(let t=Math.floor(vs/beat)*beat;t<=vs+VD()+1e-6;t+=beat){const x=Math.round(t2x(t))+.5,isBar=Math.abs(t/bar-Math.round(t/bar))<1e-6;
+    c.strokeStyle=isBar?'#4a4c56':'#2e3038';c.beginPath();c.moveTo(x,isBar?0:12);c.lineTo(x,H);c.stroke()}
+  // 数字の間隔は拡大率から、110px 以上空く一番細かい刻みを選ぶ
+  const st=[1,2,5,10,15,30].map(k=>k/fps).concat([1,2,4,8]).find(v=>v*pxPerS>=110)||8;
+  for(let i=Math.ceil(vs/st);i*st<=vs+VD()+1e-6;i++){const t=i*st,x=Math.round(t2x(t))+.5,f=Math.round(t*fps);
+    c.fillStyle=css('--dim');c.fillText(st<1?`${t.toFixed(2)}s  #${f}`:Math.abs(t/bar-Math.round(t/bar))<1e-6?`${t.toFixed(0)}s  ${Math.round(t/bar)+1}小節`:`${t.toFixed(0)}s`,x+3,2)}
+  let y=24;
+  (I.shots||[]).forEach((s,i)=>{const x=t2x(s.start),w=t2x(s.end)-x;c.fillStyle=i%2?'#262a3a':'#2c3247';c.fillRect(x+1,y+2,w-2,20);
+    c.fillStyle=css('--fg');c.font='600 11px sans-serif';c.textBaseline='middle';c.save();c.beginPath();c.rect(x+1,y,w-2,24);c.clip();c.fillText(s.name,Math.max(x,0)+7,y+12);c.restore()});
+  y+=24;const P=I.peaks||[];c.fillStyle='#3b4a6e';const step=I.duration/P.length;
+  for(let i=Math.max(0,Math.floor(vs/step));i<Math.min(P.length,Math.ceil((vs+VD())/step));i++){const x=t2x(i*step),h=P[i]*32;c.fillRect(x,y+19-h/2,Math.max(t2x((i+1)*step)-x,1),h)}
+  (I.cues||[]).forEach(t=>{c.fillStyle=css('--cue');c.fillRect(t2x(t)-1,y,2,38)});
+  y+=38;(I.findings||[]).forEach(f=>{const x=t2x(f.t);c.fillStyle=css('--err');c.beginPath();c.moveTo(x,y+4);c.lineTo(x+6,y+16);c.lineTo(x-6,y+16);c.fill()});
+  (I.notes||[]).forEach(n=>{c.fillStyle=n.done?css('--faint'):css('--note');c.beginPath();c.arc(t2x(n.t),y+10,5,0,7);c.fill()});
+  const x=t2x(tNow());c.fillStyle=css('--acc');c.fillRect(x-1,0,2,H);c.beginPath();c.moveTo(x-7,0);c.lineTo(x+7,0);c.lineTo(x+7,10);c.lineTo(x,17);c.lineTo(x-7,10);c.fill()}
+function buildLayers(){if(!I)return;const rows=visibleRows(),E=I.edits||{},inFrame=new Set(NODES.map(n=>n.id)),t=tNow();
+  $('layers').innerHTML='';rows.forEach(([id,d])=>{const v=N()[id],kids=childrenOf(id).length,on=id===sel;
+    const vis=(v.runs||[v.seen]).some(([a,b])=>a<=t&&t<b);
+    const r=document.createElement('div');r.className='ly'+(on?' on':'')+(vis?'':' off');r.dataset.id=id;r.style.paddingLeft=(6+d*14)+'px';
+    r.innerHTML=`<span class="tw${kids?'':' leaf'}">${open_.has(id)?'▾':'▸'}</span><span class="ic">${v.parent?'':'■'}</span><span class="nm">${esc(v.label.split(': ').pop())}</span>${E[id]?'<span class="dot" title="変更あり"></span>':''}<span class="sp"></span><button class="eye${E[id]&&E[id].hidden?' hid':''}" title="隠す / 表示">${E[id]&&E[id].hidden?'⊘':'👁'}</button>`;
+    r.querySelector('.tw').onclick=ev=>{ev.stopPropagation();open_.has(id)?open_.delete(id):open_.add(id);buildLayers();drawTL()};
+    r.querySelector('.eye').onclick=ev=>{ev.stopPropagation();edit(id,{hidden:(E[id]&&E[id].hidden)?null:true})};
+    r.onclick=()=>{goTo(id);select(id)};r.onmouseenter=()=>{hover=id;drawOV()};r.onmouseleave=()=>{hover=null;drawOV()};
+    $('layers').append(r)});drawLanes();
+  if(sel&&sel!==shownSel){shownSel=sel;const r=$('layers').querySelector(`.ly[data-id="${CSS.escape(sel)}"]`);if(r)r.scrollIntoView({block:'nearest'})}}
+let shownSel=null;
+function markLayer(){document.querySelectorAll('.ly').forEach(r=>r.style.outline=r.dataset.id===hover?'1px solid #ffffff44':'')}
+function drawLanes(){const rows=visibleRows(),rh=22,dpr=devicePixelRatio||1,W=tlW(),H=Math.max(rows.length*rh,1);lanesC.style.height=H+'px';
+  if(lanesC.width!==W*dpr||lanesC.height!==H*dpr){lanesC.width=W*dpr;lanesC.height=H*dpr}
+  const c=lctx;c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,W,H);const E=I.edits||{},beat=60/I.bpm;
+  for(let t=Math.floor(vs/beat)*beat;t<=vs+VD();t+=beat){const x=Math.round(t2x(t))+.5;c.strokeStyle='#1d1f25';c.beginPath();c.moveTo(x,0);c.lineTo(x,H);c.stroke()}
+  rows.forEach(([id],i)=>{const v=N()[id],y=i*rh,on=id===sel;if(on){c.fillStyle='#16233a';c.fillRect(0,y,W,rh)}
     const sh=(drag&&drag.mode==='lane'&&drag.id===id)?drag.dts:0;let last=0;
-    c.fillStyle=on?css('--sel'):(E[id]?'#7a4a36':'#3a3f52');
-    (v.runs||[v.seen]).forEach(([a,b])=>{c.fillRect(t2x(a+sh),yy+3,Math.max(t2x(b+sh)-t2x(a+sh),3),ROW.lane-6);last=Math.max(last,b+sh)});
-    if(E[id]&&E[id].dt){c.fillStyle=css('--acc');c.fillText(`${E[id].dt>0?'+':''}${E[id].dt.toFixed(2)}s`,Math.min(t2x(last)+4,W-50),yy+ROW.lane/2)}});
-  const x=t2x(cur/I.fps);c.fillStyle=css('--acc');c.fillRect(x-1,0,2,H);c.beginPath();c.moveTo(x-6,0);c.lineTo(x+6,0);c.lineTo(x,8);c.fill()}
-let tlDrag=false;
-tl.onmousedown=e=>{if(!I)return;const r=tl.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
-  const ly=ROW.ruler+ROW.shots+ROW.wave+ROW.marks,L=lanes(),i=Math.floor((y-ly)/ROW.lane);
-  if(y>=ly&&i>=0&&i<L.length){const [id,v]=L[i];select(id);const t=x2t(x);
-    if((v.runs||[v.seen]).some(([a,b])=>t>=a-.05&&t<=b+.05)){drag={id,mode:'lane',x0:x,dts:0,base:(I.edits[id]||{}).dt||0,moved:false};return}
-    if(!(v.seen[0]<=tNow()&&tNow()<=v.seen[1]))seekTo((v.seen[0]+.05)*I.fps);return}
-  tlDrag=true;tlSeek(e)};
-function tlSeek(e){const r=tl.getBoundingClientRect();let t=Math.max(0,x2t(e.clientX-r.left));if(e.shiftKey){const b=60/I.bpm;t=Math.round(t/b)*b}seekTo(t*I.fps)}
-function laneMove(e){const r=tl.getBoundingClientRect();let d=(e.clientX-r.left-drag.x0)/tw()*I.duration;
-  const b=60/I.bpm/4;if(!e.altKey)d=Math.round(d/b)*b;drag.dts=d;drag.moved=true;drawTL()}
-addEventListener('mousemove',e=>{if(tlDrag)tlSeek(e);if(drag&&drag.mode==='lane')laneMove(e)});
-addEventListener('mouseup',e=>{tlDrag=false;if(drag&&drag.mode==='lane')laneMove(e);if(drag&&drag.mode==='lane'){const d=drag;drag=null;if(d.moved&&Math.abs(d.dts)>1e-6)edit(d.id,{dt:+(d.base+d.dts).toFixed(3)});drawTL()}});
+    c.fillStyle=on?css('--sel'):(E[id]?'#8a5236':(v.parent?'#343a4c':'#43506e'));
+    (v.runs||[v.seen]).forEach(([a,b])=>{const x0=t2x(a+sh),x1=t2x(b+sh);c.beginPath();c.roundRect(x0,y+4,Math.max(x1-x0,3),rh-8,3);c.fill();last=Math.max(last,b+sh)});
+    if(E[id]&&E[id].dt&&!sh&&last>vs){c.fillStyle=css('--acc');c.font='10px '+css('--mono');c.textBaseline='middle';c.fillText(`${E[id].dt>0?'+':''}${E[id].dt.toFixed(2)}s`,Math.min(t2x(last)+5,W-48),y+rh/2)}
+    if(sh){c.fillStyle='#fff';c.font='10px '+css('--mono');c.textBaseline='middle';c.fillText(`${sh>0?'+':''}${sh.toFixed(3)}s`,Math.min(t2x(last)+5,W-56),y+rh/2)}});
+  const x=t2x(tNow());c.fillStyle=css('--acc');c.fillRect(x-1,0,2,H)}
+function drawTL(){if(!I)return;drawHead();drawLanes()}
+// シーク: 目盛り・ショット・波形・マーカーの帯のどこでも。再生ヘッドは下のレイヤーの帯でもつかめる
+function scrubAt(e){const r=head.getBoundingClientRect();let t=x2t(e.clientX-r.left);if(e.shiftKey){const b=60/I.bpm;t=Math.round(t/b)*b}
+  seekTo(Math.max(0,Math.min(I.nframes-1,Math.round(t*I.fps))))}
+head.onmousedown=e=>{if(!I)return;drag={mode:'scrub'};scrubAt(e)};
+lanesC.onmousedown=e=>{if(!I)return;const r=lanesC.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+  if(Math.abs(x-t2x(tNow()))<5){drag={mode:'scrub'};scrubAt(e);return}
+  const rows=visibleRows(),i=Math.floor(y/22);if(i<0||i>=rows.length)return;const id=rows[i][0],v=N()[id],t=x2t(x);
+  if((v.runs||[v.seen]).some(([a,b])=>t>=a&&t<=b)){if(id!==sel)select(id);drag={id,mode:'lane',x0:x,dts:0,base:((I.edits||{})[id]||{}).dt||0,moved:false};return}
+  drag={mode:'scrub'};scrubAt(e)};
+lanesC.onmousemove=e=>{if(drag)return;const r=lanesC.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;const rows=visibleRows(),i=Math.floor(y/22);
+  let cur_='crosshair';if(Math.abs(x-t2x(tNow()))<5)cur_='ew-resize';else if(i>=0&&i<rows.length){const v=N()[rows[i][0]],t=x2t(x);if((v.runs||[v.seen]).some(([a,b])=>t>=a&&t<=b))cur_='grab'}lanesC.style.cursor=cur_};
+function laneMove(e){const r=lanesC.getBoundingClientRect();let d=(e.clientX-r.left-drag.x0)/tlW()*VD();
+  const b=1/I.fps;d=Math.round(d/b)*b;if(e.shiftKey){const q=60/I.bpm/4;d=Math.round(d/q)*q}if(Math.abs(d)>0)drag.moved=true;drag.dts=d;drawLanes()}
+addEventListener('mousemove',e=>{if(!drag)return;if(drag.mode==='scrub')scrubAt(e);else if(drag.mode==='lane')laneMove(e)});
+addEventListener('mouseup',e=>{if(!drag)return;if(drag.mode==='scrub'){drag=null;return}
+  if(drag.mode==='lane'){laneMove(e);const d=drag;drag=null;if(d.moved&&Math.abs(d.dts)>1e-6)edit(d.id,{dt:+(d.base+d.dts).toFixed(4)});else drawLanes()}});
+$('tlscroll').addEventListener('wheel',e=>{if(!I)return;const r=head.getBoundingClientRect();
+  if(e.ctrlKey||e.metaKey){e.preventDefault();const t=x2t(e.clientX-r.left);zoomAt(Math.exp(-e.deltaY*0.01),t);return}
+  const dx=e.shiftKey?e.deltaY:e.deltaX;if(Math.abs(dx)>Math.abs(e.shiftKey?0:e.deltaY)&&vd){e.preventDefault();vs+=dx/tlW()*VD();clampView();drawTL()}},{passive:false});
+$('zIn').onclick=()=>zoomAt(2,tNow());$('zOut').onclick=()=>zoomAt(.5,tNow());$('zFit').onclick=()=>{vd=null;vs=0;clampView();drawTL()};
+head.ondblclick=()=>$('zFit').click();
+// タイムラインの高さ
+$('resize').onmousedown=e=>{const y0=e.clientY,h0=$('bottom').getBoundingClientRect().height;const mv=ev=>{const h=Math.max(160,Math.min(innerHeight-200,h0-(ev.clientY-y0)));document.getElementById('app').style.setProperty('--tlh',h+'px');drawOV();drawTL()};
+  const up=()=>{removeEventListener('mousemove',mv);removeEventListener('mouseup',up)};addEventListener('mousemove',mv);addEventListener('mouseup',up)};
 
 // ================= メモとエラー
-function buildNotes(){const el=$('noteList');el.innerHTML='';const N=I.notes||[];$('nNotes').textContent=N.filter(n=>!n.done).length;
-  if(!N.length)el.innerHTML='<div class="empty">メモはまだ無い。気になるコマで N を押して書く。</div>';
-  N.forEach(n=>{const d=document.createElement('div');d.className='item'+(n.done?' done':'');
+function buildNotes(){const el=$('noteList');el.innerHTML='';const Ns=I.notes||[];$('nNotes').textContent=Ns.filter(n=>!n.done).length;
+  if(!Ns.length)el.innerHTML='<div class="empty">メモはまだ無い。気になるコマで N を押して書く。</div>';
+  Ns.forEach(n=>{const d=document.createElement('div');d.className='item'+(n.done?' done':'');
     d.innerHTML=`<span class="t">${fmt(n.t)}</span><span class="txt"></span><span><input type="checkbox" title="済み" ${n.done?'checked':''}><button class="x" title="削除">✕</button></span>`;
     d.querySelector('.txt').textContent=n.text;d.querySelector('.t').onclick=()=>seekTo(n.t*I.fps);
     d.querySelector('input').onchange=e=>post('/notes/update',{id:n.id,done:e.target.checked}).then(poll1);
@@ -326,9 +422,9 @@ async function poll1(){try{const j=await (await fetch('/info')).json();
   const e=$('err');e.style.display=j.error?'block':'none';e.textContent=j.error||'';$('cache').style.width=(100*j.cached/j.nframes)+'%';
   if(j.version!==ver){const first=!I;I=j;ver=j.version;nodesKey='';$('name').textContent=j.name;
     $('meta').textContent=`${j.width}×${j.height} · ${j.fps}fps · ${j.duration?.toFixed?.(1)}s · ${j.bpm} BPM${j.loop?' · ループ':''}`;
-    if(j.audio&&j.audio_key!==audioKey)loadAudio(j.audio_key);buildParams();if(!sel)buildElem();show(first?0:cur)}
+    if(j.audio&&j.audio_key!==audioKey)loadAudio(j.audio_key);if(first)buildHeadL();buildParams();clampView();show(first?0:cur)}
   else{const keepEdits=I.edits;I=Object.assign(I,j);if(!j.edits)I.edits=keepEdits}
-  const s=JSON.stringify([j.notes,j.findings,j.nodes,j.edits]);if(s!==sig){sig=s;buildNotes();buildFinds();drawTL();if(!sel)buildElem()}
+  const s=JSON.stringify([j.notes,j.findings,j.nodes,j.edits]);if(s!==sig){sig=s;buildNotes();buildFinds();buildLayers();drawTL();if(!sel)buildElem()}
   if(j.job)showJob(j.job)}catch(e){}}
 async function poll(){await poll1();setTimeout(poll,400)}
 
@@ -339,11 +435,13 @@ document.onkeydown=e=>{const mod=e.metaKey||e.ctrlKey,k=e.key.toLowerCase();
   if(e.target.matches('input,textarea'))return;if(!I)return;const beat=Math.round(I.fps*60/I.bpm);
   if(e.altKey&&sel&&e.key.startsWith('Arrow')){e.preventDefault();const n=selNode();if(!n)return;const st=e.shiftKey?10:1,b=base(n);
     const u=e.key==='ArrowLeft'?{dx:b.dx-st}:e.key==='ArrowRight'?{dx:b.dx+st}:e.key==='ArrowUp'?{dy:b.dy-st}:{dy:b.dy+st};n.edits=Object.assign({},n.edits,u);edit(n.id,u);return}
-  if(e.code==='Space'){e.preventDefault();toggle()}else if(e.key==='Escape'){const n=selNode();select(n&&n.parent?n.parent:null)}
+  if(e.code==='Space'){e.preventDefault();toggle()}else if(e.key==='Escape'){select(sel?parentOf(sel):null)}
+  else if(e.key==='Enter'&&sel){const k2=childrenOf(sel)[0];if(k2)select(k2)}
   else if(e.code==='ArrowLeft')seekTo(cur-(e.shiftKey?beat:1));else if(e.code==='ArrowRight')seekTo(cur+(e.shiftKey?beat:1));
   else if(e.key==='['||e.key===']'){const t=tNow(),S=I.shots||[];const s=e.key===']'?S.find(s=>s.start>t+1e-3):[...S].reverse().find(s=>s.start<t-1e-3);if(s)seekTo(s.start*I.fps)}
   else if(e.key==='n'||e.key==='N'){e.preventDefault();if(playing)toggle();tab('notes');$('noteText').focus()}};
 $('bPlay').onclick=toggle;$('bPrev').onclick=()=>seekTo(cur-1);$('bNext').onclick=()=>seekTo(cur+1);
 addEventListener('resize',()=>{drawOV();drawTL()});
+new ResizeObserver(()=>{drawOV();drawTL()}).observe($('stage'));
 poll();
 </script></body></html>
