@@ -30,3 +30,13 @@ def test_review_writes_sheet_and_notes(tmp_path):
     md = png.with_suffix(".md").read_text(encoding="utf-8")
     assert png.exists() and png.stat().st_size > 10_000
     assert "静止の割合" in md and "大きな欠点" in md
+
+
+def test_scaffold_renders(tmp_path):
+    from motion.render import FrameRenderer, load_project
+    from motion.scaffold import create
+    d = create("sample", root=tmp_path / "projects", aspect="1:1", dur=16)
+    comp = load_project(d)
+    assert (comp.width, comp.height) == (1080, 1080)
+    assert len(comp.shots) == 5 and comp.duration == 16
+    assert FrameRenderer(comp, 0.2).frame(60).mean() > 5

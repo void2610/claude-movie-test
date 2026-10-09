@@ -39,6 +39,11 @@ def main() -> None:
     st.add_argument("-o", "--out")
     st.add_argument("--scale", type=float, default=1.0)
 
+    nw = sub.add_parser("new", help="制作文書 (brief / style / shotlist) つきの作品のひな形を作る")
+    nw.add_argument("name")
+    nw.add_argument("--aspect", default="16:9", choices=["16:9", "9:16", "1:1"])
+    nw.add_argument("--dur", type=int, default=16)
+
     rv = sub.add_parser("review", help="批評用のシート (ショットごとのコマ・カット前後・音・スマホ幅・自動計測)")
     rv.add_argument("project")
     rv.add_argument("-o", "--out")
@@ -87,6 +92,11 @@ def main() -> None:
             except json.JSONDecodeError:
                 params[k] = v
         os.environ["MOTION_PARAMS"] = json.dumps(params)
+    if args.cmd == "new":
+        from .scaffold import create
+        d = create(args.name, aspect=args.aspect, dur=args.dur)
+        print(f"-> {d}  (brief.md → style.md → shotlist.md の順に埋めてから作り込む)")
+        return
     if args.cmd == "preview":
         from .preview import serve
         serve(args.project, args.port, args.scale, args.blur, args.workers, not args.no_open)
