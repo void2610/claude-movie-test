@@ -7,11 +7,21 @@
 
 作品は `projects/<名前>/project.py` に置き、`build() -> Composition` を定義する。見本は `projects/demo/project.py`。
 
+### 制作の進め方
+
+1. `uv run python -m motion new <名前>` でひな形を作り、`brief.md` → `style.md` → `shotlist.md` を埋める。空欄のままレンダリングしない (モデルが無難な既定値で埋め、凡庸な定番になる)
+2. 素材 (ロゴ・画面・キャプチャ・音) は実物だけを使う。足りなければ止めてユーザーに確認し、それらしいものを捏造しない
+3. 最も大事な 1 ショットを先に作り、`still` で見せて方向性の合意を取ってから他を作る
+4. `review` のシートと review.md で最も大きな欠点を 3 つ、時刻・根拠・局所的な修正つきで書き、その区間だけ直して `review` し直す
+5. 縦長・正方形は切り抜きではなく、同じ素材とショットで別の構成として組む (`--set aspect=...`)
+
 ```sh
 uv run python -m motion render projects/demo            # 1080p・音付きで build/demo/demo.mp4
 uv run python -m motion preview projects/demo           # ブラウザでシーク・再生 (保存で自動更新)
 uv run python -m motion render projects/demo --draft    # 半解像度・ブラーなし・HW エンコード
 uv run python -m motion render projects/demo --start 2 --end 4
+uv run python -m motion new myfilm --aspect 1:1         # 制作文書つきのひな形 (projects/myfilm)
+uv run python -m motion review projects/demo            # 批評用シート + review.md (projects/demo/reviews/)
 uv run python -m motion sheet projects/demo             # コンタクトシート (build/demo/sheet.png)
 uv run python -m motion still projects/demo 3.5         # 1 フレームの PNG
 uv run python -m motion audio projects/demo             # 音だけ
@@ -27,8 +37,12 @@ uv run pytest                                           # テスト (描画を�
 | モジュール | 役割 |
 |---|---|
 | `scene` | `Composition` (解像度・fps・BPM・シーン・ポスト・カメラ・キュー・音・`linear`)、`Scene` / `@scene(start, end)` (`fixed=True` でカメラ無視)、`Ctx` (t, lt, p, tl, W, H, CX, CY) |
-| `transition` | `Transition(a, b, at, dur, kind)` (cut / crossfade / push / wipe / iris / slices / zoom)、`mask` `matte` `montage` |
+| `transition` | `Transition(a, b, at, dur, kind)` (cut / crossfade / push / wipe / iris / slices / zoom / tear)、`mask` `matte` `montage` |
 | `timeline` | `beat(n)` `bar(n)` `step(n, div)` `beat_at(t)` `pulse(t)` |
+| `shots` | `ShotList.from_md("shotlist.md")` を `Composition(shots=...)` に渡すと、`shots["proof"].start` のように時刻を引け、`review` がショットごとにコマを選ぶ |
+| `rules` | 動きの種類 (micro / ui / panel / headline / playful / camera / move) ごとの `enter` `leave` `scale_in`、`read_time` (文字列を読ませる最低時間)、`stagger` (時間差の合計を抑える)。作品の中で場当たり的に曲線を作らない |
+| `persp` | 2.5D。`Camera.default(ctx).orbit(yaw).dolly(k)` と `Card(center, size, rot, draw=...)` を `draw_cards` で奥から描く。`grid_floor` |
+| `texture` | `paper` (くしゃっとした紙)、`halftone` (網点)、`misregister` (印刷の版ずれ。衝撃の時だけ強める) |
 | `anim` / `easing` | `tween` `progress` `Keys` `spring` `stagger` `window` `impact`、各種イージングと `cubic_bezier` |
 | `draw` / `color` | 図形・パス・`trim`・`transform` / `layer` / `clip_rect`、`Color` `Palette` |
 | `text` | harfbuzz で組み、可変フォントの軸を指定して描く。`letters()` で 1 文字ずつ動かせる。日本語は `jp` (Noto Sans JP) に自動で切り替わる。`paragraph` / `layout` で禁則つきの折り返し。フォントは `assets/fonts` (`sans` / `sans-mono` / `mono` / `jp`) |
@@ -55,6 +69,8 @@ uv run pytest                                           # テスト (描画を�
 ## 参考資料
 
 - `Knowledge/motion-engine-design.md`: このエンジンの設計判断
+- `Knowledge/motion-skill-rules.md`: 動き・構図・文字・色・音の具体的な数値ルールと避ける定番 (作り込む前に読む)
+- `Knowledge/motion-studio-references-2026-10.md`: 参考事例の調査 (rari の記事・motionpromptgallery など)
 - `Knowledge/shneural-engine-anatomy.md`: 自作 Python エンジンの構成例 (BPM 基準の core、シーンごとのファイル、`f(t)` 型のレンダラ、コンタクトシートでの自己レビュー)
 - `Knowledge/opus55-video-stack-survey.md`: 他の事例の技術スタックと品質を上げる工夫
 - `Knowledge/shneural-motion-reel-setup.md`: 参考にしたツイートと制作環境
