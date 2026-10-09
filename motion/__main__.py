@@ -39,6 +39,11 @@ def main() -> None:
     st.add_argument("-o", "--out")
     st.add_argument("--scale", type=float, default=1.0)
 
+    rv = sub.add_parser("review", help="批評用のシート (ショットごとのコマ・カット前後・音・スマホ幅・自動計測)")
+    rv.add_argument("project")
+    rv.add_argument("-o", "--out")
+    rv.add_argument("--scale", type=float, default=0.22)
+
     a = sub.add_parser("audio", help="音声だけを書き出す")
     a.add_argument("project")
 
@@ -69,7 +74,7 @@ def main() -> None:
     au.add_argument("--notes", default="F3,G#3,C4")
     au.add_argument("-o", "--out", default="build/audition.wav")
 
-    for p_ in (r, s, st, a, pv):
+    for p_ in (r, s, st, a, pv, rv):
         p_.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
                         help="build() に渡すパラメータ (例: --set aspect=9:16)")
     args = ap.parse_args()
@@ -136,6 +141,9 @@ def main() -> None:
                       start=args.start, end=args.end, workers=args.workers)
     elif args.cmd == "still":
         still(args.project, args.t, args.out, scale=args.scale)
+    elif args.cmd == "review":
+        from .review import review
+        review(args.project, args.out, args.scale)
     elif args.cmd == "audio":
         comp = load_project(args.project)
         prepare(comp)

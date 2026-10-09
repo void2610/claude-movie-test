@@ -172,6 +172,10 @@ class Composition:
     prepare: list[Callable[[Composition], None]] = field(default_factory=list)
     name: str = "untitled"
     build_dir: str = "build"
+    # ショットリスト (shots.ShotList)。レビューのシートはこれに沿ってコマを選ぶ
+    shots: Any = None
+    # 最初と最後のコマが一致するべきループ作品か (レビューで差を測る)
+    loop: bool = False
 
     def __post_init__(self):
         self.background = to_color(self.background)
