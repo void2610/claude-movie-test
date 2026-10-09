@@ -13,12 +13,14 @@
 2. 素材 (ロゴ・画面・キャプチャ・音) は実物だけを使う。足りなければ止めてユーザーに確認し、それらしいものを捏造しない
 3. 最も大事な 1 ショットを先に作り、`still` で見せて方向性の合意を取ってから他を作る
 4. `review` のシートと review.md で最も大きな欠点を 3 つ、時刻・根拠・局所的な修正つきで書き、その区間だけ直して `review` し直す。`review` は等倍の画素で検査し (縁での見切れ・1 フレームの閃き・ループ・作品ごとの `comp.checks`)、エラーが 1 件でも残ると失敗で終わる。エラーが 0 件になるまで完了と報告しない
-6. ユーザーから見た目の指摘を受けたら、直す前にその症状を `comp.checks` に `Check` として書き、今の版で失敗することを確かめてから直す (同じミスを別の作品で繰り返さないため)。意図した例外だけ理由つきの `Waiver` にする
+6. 調整はスタジオ (`motion studio`) で行う。作品はタイミング・色・文言を `tune()` で宣言してスタジオから触れるようにする。ユーザーがスタジオで付けたメモは作品の `notes.md` に「- [ ] 08.30s 本文」で残るので、作業を始める前に読み、未完了の項目をその時刻の箇所だけ直して `[x]` にする
+7. ユーザーから見た目の指摘を受けたら、直す前にその症状を `comp.checks` に `Check` として書き、今の版で失敗することを確かめてから直す (同じミスを別の作品で繰り返さないため)。意図した例外だけ理由つきの `Waiver` にする
 5. 縦長・正方形は切り抜きではなく、同じ素材とショットで別の構成として組む (`--set aspect=...`)
 
 ```sh
 uv run python -m motion render projects/demo            # 1080p・音付きで build/demo/demo.mp4
-uv run python -m motion preview projects/demo           # ブラウザでシーク・再生 (保存で自動更新)
+uv run python -m motion studio projects/liminal_poster  # スタジオ: タイムライン・パラメータ・メモ・レビュー・書き出し
+uv run python -m motion preview projects/demo           # 軽量なプレビュー (シーク・再生のみ)
 uv run python -m motion render projects/demo --draft    # 半解像度・ブラーなし・HW エンコード
 uv run python -m motion render projects/demo --start 2 --end 4
 uv run python -m motion new myfilm --aspect 1:1         # 制作文書つきのひな形 (projects/myfilm)
@@ -43,6 +45,7 @@ uv run pytest                                           # テスト (描画を�
 | `shots` | `ShotList.from_md("shotlist.md")` を `Composition(shots=...)` に渡すと、`shots["proof"].start` のように時刻を引け、`review` がショットごとにコマを選ぶ |
 | `rules` | 動きの種類 (micro / ui / panel / headline / playful / camera / move) ごとの `enter` `leave` `scale_in`、`read_time` (文字列を読ませる最低時間)、`stagger` (時間差の合計を抑える)。作品の中で場当たり的に曲線を作らない |
 | `persp` | 2.5D。`Camera.default(ctx).orbit(yaw).dolly(k)` と `Card(center, size, rot, draw=...)` を `draw_cards` で奥から描く。`grid_floor` |
+| `tune` | `P = tune(HERE, T_RUN=(5.0, 3, 8), ACCENT="#FACC15", H1="...")` をモジュールの先頭で呼び、`Composition(tune=P)` に渡す。値は作品の `tune.json` に保存される |
 | `checks` | `Check(name, times, fn)` (等倍の画像で症状を確かめる)、`color_along` (線の上の画素の色)、`edge_clips` (縁で切れた要素)、`Waiver` (理由つきの例外) |
 | `texture` | `paper` (くしゃっとした紙)、`halftone` (網点)、`misregister` (印刷の版ずれ。衝撃の時だけ強める) |
 | `anim` / `easing` | `tween` `progress` `Keys` `spring` `stagger` `window` `impact`、各種イージングと `cubic_bezier` |
