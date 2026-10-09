@@ -420,13 +420,21 @@ class Mix:
         return out
 
     def render(self, path: str | Path, lufs: float = -14.0, ceiling_db: float = -1.0,
-               master: list | None = None) -> str:
-        """ミックスダウンし、ラウドネスを lufs に揃え、リミッターをかけて書き出す。"""
+               master: list | None = None, loop: bool = False) -> str:
+        """ミックスダウンし、ラウドネスを lufs に揃え、リミッターをかけて書き出す。
+
+        loop=True なら、尺を超えた残響を頭に足し込み、末尾のフェードもかけない (継ぎ目なく繰り返せる)。
+        """
         src = self.mixdown()
         if master:
             src = pb.Pedalboard(master)(src, self.sr)
         end = int(self.duration * self.sr)
-        src = src[:, :end]
+        tail = src[:, end:]
+        src = src[:, :end].copy()
+        if loop:
+            for k in range(0, tail.shape[1], end):
+                seg = tail[:, k:k + end]
+                src[:, :seg.shape[1]] += seg
         meter = pyloudnorm.Meter(self.sr)
         # リミッターでラウドネスが下がる分を、計り直して詰めていく
         g = 1.0
@@ -437,8 +445,9 @@ class Mix:
             if not np.isfinite(cur) or abs(cur - lufs) < 0.1:
                 break
             g *= db(lufs - cur)
-        fade = int(0.02 * self.sr)
-        y[:, -fade:] *= np.linspace(1, 0, fade, dtype=np.float32)
+        if not loop:
+            fade = int(0.02 * self.sr)
+            y[:, -fade:] *= np.linspace(1, 0, fade, dtype=np.float32)
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with AudioFile(str(path), "w", self.sr, num_channels=2) as f:
             f.write(y)

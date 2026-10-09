@@ -52,3 +52,11 @@ def test_surge_patch_changes_sound():
     b = p(msgs, duration=1.0, sample_rate=48000)
     assert np.abs(a).max() > 0.01 and np.abs(b).max() > 0.01
     assert abs(centroid(a) - centroid(b)) > 100
+
+
+def test_loop_render_wraps_tail_to_head(tmp_path):
+    mx = audio.Mix(1.0, tail=1.0)
+    mx.tone(0.8, 0.5, "A3", wave="sine", env=(0.001, 0.1, 1.0, 0.3), gain_db=-6)
+    y = audio.load(mx.render(tmp_path / "loop.wav", lufs=-20, loop=True))
+    assert np.abs(y[:, :int(0.1 * 48000)]).max() > 0.01      # 1 秒をはみ出した音が頭に回り込む
+    assert np.abs(y[:, -100:]).max() > 0.01                   # 末尾をフェードで切らない
