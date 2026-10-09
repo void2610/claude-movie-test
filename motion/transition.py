@@ -13,7 +13,7 @@ import skia
 
 from . import easing
 from .anim import clamp, stagger
-from .draw import paint
+from .draw import paint, path
 from .scene import Composition, Ctx, Scene, paint_scene
 
 Draw = Callable[[skia.Canvas], None]
@@ -165,7 +165,50 @@ def zoom(c, a: Draw, b: Draw, p: float, ctx: Ctx, amount: float = 0.3) -> None:
         c.restore()
 
 
-KINDS = {"cut": None, "crossfade": crossfade, "push": push, "wipe": wipe, "iris": iris, "slices": slices,
+def _tear_edge(ctx: Ctx, y0: float, seed: int, rough: float) -> list[tuple[float, float]]:
+    """横に走る破れ目のギザギザの線。大きなうねりと細かい毛羽立ちを重ねる。"""
+    from .noise import hash01
+    # 点の間隔とギザギザの大きさを解像度に比例させる (細かすぎるトゲはアンチエイリアスの重なりで穴になる)
+    k = ctx.H / 1080
+    n = max(int(ctx.W / (12 * k)), 8)
+    pts = []
+    for i in range(n + 1):
+        u = i / n * 160
+        wave = (math.sin(u * 0.11 + seed) * 22 + math.sin(u * 0.37 + seed * 2.1) * 10) * k
+        jag = (hash01(i, seed) - 0.5) * 2 * rough * k
+        pts.append((ctx.W * i / n, y0 + wave + jag))
+    return pts
+
+
+def tear(c, a: Draw, b: Draw, p: float, ctx: Ctx, seed: int = 3, rough: float = 14.0, gap: float = 1.15,
+         edge_color: str = "#FBF8F0") -> None:
+    """a が紙のように上下に破れて、その奥から b が現れる。破れ目には紙の白い断面が残る。"""
+    b(c)
+    if p >= 1:
+        return
+    edge = _tear_edge(ctx, ctx.CY, seed, rough)
+    open_ = easing.inout_cubic(clamp(p)) * ctx.H / 2 * gap
+    big = ctx.H * 2
+    for sign, outline in ((-1, [(ctx.W, -big), (0, -big)]), (1, [(ctx.W, big), (0, big)])):
+        # 上下の破片を境目の向こうへ 1.5px はみ出させ、アンチエイリアスの継ぎ目から b が透けないようにする
+        piece = path([(x, y - sign * 1.5 * ctx.H / 1080) for x, y in edge] + outline, closed=True)
+        dy = sign * open_
+        c.save()
+        c.translate(0, dy)
+        # 断面: 破れ目から少しはみ出した細い白い帯だけを描く (a が透明でも破片全体が白くならないように)
+        band = path([(x, y - sign * min(7.0 * ctx.H / 1080, open_)) for x, y in edge] + outline, closed=True)
+        c.save()
+        c.clipPath(piece, skia.ClipOp.kDifference, True)
+        c.drawPath(band, paint(edge_color))
+        c.restore()
+        c.save()
+        c.clipPath(piece, skia.ClipOp.kIntersect, True)
+        a(c)
+        c.restore()
+        c.restore()
+
+
+KINDS = {"cut": None, "tear": tear, "crossfade": crossfade, "push": push, "wipe": wipe, "iris": iris, "slices": slices,
          "zoom": zoom}
 
 
