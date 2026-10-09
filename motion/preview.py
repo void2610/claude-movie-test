@@ -88,7 +88,7 @@ class Previewer:
     def _mtime(self) -> float:
         return max((p.stat().st_mtime for p in self.dir.rglob("*.py")), default=0.0)
 
-    def reload(self) -> None:
+    def reload(self, skip_audio: bool = False) -> None:
         # 作品ディレクトリ内の自作モジュールも読み直す
         for name, mod in list(sys.modules.items()):
             f = getattr(mod, "__file__", None)
@@ -98,7 +98,7 @@ class Previewer:
             comp = load_project(self.project)
             prepare(comp)
             renderer = FrameRenderer(comp, self.scale, self.mb)
-            audio_path = comp.audio(comp) if comp.audio else None
+            audio_path = self.audio_path if skip_audio else (comp.audio(comp) if comp.audio else None)
         except Exception:
             self.error = traceback.format_exc()
             print(self.error, file=sys.stderr)

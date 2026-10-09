@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 
 import numpy as np
 
+from . import nodes as nodes_mod
 from . import tune as tune_mod
 from .preview import Previewer
 
@@ -119,12 +120,37 @@ class Studio(Previewer):
         self.output: str | None = None
 
     def _mtime(self) -> float:
-        # メモの保存では描き直さない。パラメータとショットリストの変更では描き直す
+        # メモの保存では描き直さない。コード・パラメータ・ショットリストの変更では音も含めて作り直す
         files = list(self.dir.rglob("*.py")) + [self.dir / n for n in ("tune.json", "shotlist.md")]
         return max((p.stat().st_mtime for p in files if p.exists()), default=0.0)
 
-    def reload(self) -> None:
+    def _edits_mtime(self) -> float:
+        p = self.dir / "edits.json"
+        return p.stat().st_mtime if p.exists() else 0.0
+
+    def watch(self) -> None:
+        import time
+        em = self._edits_mtime()
+        while True:
+            m, e = self._mtime(), self._edits_mtime()
+            if m != self.mtime:
+                self.mtime, em = m, e
+                self.reload()
+            elif e != em:
+                em = e
+                self.reload(keep_audio=True)
+            time.sleep(0.15)
+
+    def reload(self, keep_audio: bool = False) -> None:
+        if keep_audio and self.comp is not None:
+            # 要素の差分だけの変更では音は変わらないので、作り直さずに使い回す
+            audio, peaks = self.audio_path, self.peaks
+            super().reload(skip_audio=True)
+            self.audio_path, self.peaks = audio, peaks
+            self._scan_nodes()
+            return
         super().reload()
+        self._scan_nodes()
         if self.audio_path:
             from .audio import load
             y = np.abs(load(self.audio_path).mean(axis=0))
@@ -145,6 +171,56 @@ class Studio(Previewer):
             m = ERR_RE.match(line.strip()) if inside else None
             if m:
                 out.append({"t": float(m.group(1)), "rule": m.group(2), "detail": m.group(3)})
+        return out
+
+    def _scan_nodes(self) -> None:
+        """0.25 秒ごとに描いて、どの要素がいつ出ているかを集める (タイムラインの要素の列に使う)。
+
+        プレビューの描画を止めないよう、別に読み込んだ作品を低解像度で別スレッドで描く。
+        """
+        def run(version):
+            from .render import FrameRenderer, load_project
+            try:
+                comp = load_project(self.project)
+                r = FrameRenderer(comp, 0.15, False, False)
+                E = nodes_mod.edits_of(comp)
+                seen_at: dict[str, list[float]] = {}
+                for f in range(0, comp.nframes, max(int(comp.fps / 4), 1)):
+                    r.draw(f / comp.fps, f)
+                    for k in E.seen:
+                        seen_at.setdefault(k, []).append(f / comp.fps)
+                step = max(int(comp.fps / 4), 1) / comp.fps
+
+                def runs(ts):
+                    out = []
+                    for t in sorted(ts):
+                        if out and t - out[-1][1] <= step * 1.5:
+                            out[-1][1] = t
+                        else:
+                            out.append([t, t])
+                    return [[a, min(b + step, comp.duration)] for a, b in out]
+
+                if version == self.version:
+                    self.node_index = {k: {"label": E.labels.get(k, k), "span": E.spans.get(k), "runs": runs(v),
+                                           "seen": [min(v), max(v) + step]} for k, v in seen_at.items()}
+            except Exception:
+                pass
+        threading.Thread(target=run, args=(self.version,), daemon=True).start()
+
+    def nodes_at(self, f: int) -> list[dict]:
+        if self.renderer is None:
+            return []
+        comp = self.comp
+        with self.lock:
+            self.renderer.draw(f / comp.fps, f)
+            E = nodes_mod.edits_of(comp)
+            w, h = self.renderer.w, self.renderer.h
+            out = []
+            for s in E.seen.values():
+                l, t, r, b = s.bounds
+                out.append({"id": s.id, "label": s.label, "space": s.space, "span": s.span,
+                            "box": [l / w, t / h, r / w, b / h], "origin": [s.origin[0] / w, s.origin[1] / h],
+                            "props": s.props, "edits": E.of(s.id)})
         return out
 
     def run_review(self) -> bool:
@@ -168,6 +244,7 @@ class Studio(Previewer):
             "duration": c.duration, "shots": shots, "cues": list(c.cues),
             "tune": c.tune.schema() if c.tune else [], "notes": self.notes.load(), "findings": self.findings,
             "peaks": self.peaks, "job": self.job.info(), "output": self.output, "loop": c.loop,
+            "nodes": getattr(self, "node_index", {}), "edits": nodes_mod.edits_of(c).data,
         })
         return base
 
@@ -201,6 +278,8 @@ def serve(project: str, port: int = 8766, scale: float = 0.5, motion_blur: bool 
             if u.path.startswith("/frame/"):
                 jpg = st.frame(int(u.path.split("/")[-1].split(".")[0]))
                 return self._send(200, jpg, "image/jpeg") if jpg else self._send(503, b"", "text/plain")
+            if u.path.startswith("/nodes/"):
+                return self._json(st.nodes_at(int(u.path.split("/")[-1])))
             if u.path == "/audio.wav" and st.audio_path:
                 return self._send(200, Path(st.audio_path).read_bytes(), "audio/wav")
             self._send(404, b"", "text/plain")
@@ -213,6 +292,17 @@ def serve(project: str, port: int = 8766, scale: float = 0.5, motion_blur: bool 
                 if not st.comp or not st.comp.tune:
                     return self._json({"error": "この作品は tune() を使っていない"}, 400)
                 return self._json(tune_mod.save(st.comp.tune.path, body))
+            if u.path == "/edit":
+                path = st.dir / "edits.json"
+                if body.get("replace"):
+                    data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+                    if body.get("value"):
+                        data[body["id"]] = body["value"]
+                    else:
+                        data.pop(body["id"], None)
+                    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+                    return self._json(data)
+                return self._json(nodes_mod.save(path, body["id"], body.get("updates", {})))
             if u.path == "/notes/add":
                 st.notes.add(float(body["t"]), str(body["text"]))
                 return self._json({"ok": True})

@@ -3,25 +3,28 @@
 <style>
 :root{
   --bg:#0d0e11;--panel:#15161b;--panel2:#1c1d23;--line:#2a2c34;--fg:#e6e6ea;--dim:#8b8d97;--faint:#5a5c66;
-  --acc:#ff6a33;--blue:#5b8cff;--cue:#ff9a5c;--note:#facc15;--err:#ff5470;--ok:#4ade80;
+  --acc:#ff6a33;--sel:#4da3ff;--cue:#ff9a5c;--note:#facc15;--err:#ff5470;--ok:#4ade80;
   --mono:ui-monospace,"SF Mono",Menlo,monospace;
 }
 *{box-sizing:border-box}
-html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 -apple-system,"Hiragino Sans",sans-serif}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 -apple-system,"Hiragino Sans",sans-serif;overflow:hidden}
 button,input,select,textarea{font:inherit;color:inherit}
 button{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:5px 11px;cursor:pointer}
 button:hover{border-color:var(--dim)}button:disabled{opacity:.45;cursor:default}
 button.pri{background:var(--acc);border-color:var(--acc);color:#140904;font-weight:600}
+button.sm{font-size:11px;padding:2px 8px}
 #app{display:grid;grid-template-columns:minmax(0,1fr) 340px;grid-template-rows:44px minmax(0,1fr) auto;height:100%}
 header{grid-column:1/-1;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--line)}
 header .name{font-weight:700}header .meta{color:var(--dim);font-family:var(--mono);font-size:12px}
 header .sp{flex:1}
 #job{font-family:var(--mono);font-size:12px;color:var(--dim);max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #job.run{color:var(--note)}#job.bad{color:var(--err)}#job.good{color:var(--ok)}
-#stage{position:relative;display:flex;align-items:center;justify-content:center;background:#050506;min-height:0;overflow:hidden}
-#stage img{width:100%;height:100%;object-fit:contain;display:block}
-#err{position:absolute;inset:0;background:#1a0709ee;color:#ff9aa8;white-space:pre-wrap;font-family:var(--mono);font-size:12px;padding:18px;overflow:auto;display:none}
-#cache{position:absolute;left:0;bottom:0;height:2px;background:var(--acc);width:0}
+#stage{position:relative;background:#050506;min-height:0;overflow:hidden}
+#stage img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;user-select:none;-webkit-user-drag:none}
+#ov{position:absolute;inset:0;width:100%;height:100%}
+#err{position:absolute;inset:0;background:#1a0709ee;color:#ff9aa8;white-space:pre-wrap;font-family:var(--mono);font-size:12px;padding:18px;overflow:auto;display:none;z-index:3}
+#cache{position:absolute;left:0;bottom:0;height:2px;background:var(--acc);width:0;z-index:2}
+#busy{position:absolute;right:10px;top:10px;font-family:var(--mono);font-size:11px;color:var(--note);display:none;z-index:2}
 aside{grid-row:2/4;grid-column:2;border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0;background:var(--panel)}
 .tabs{display:flex;border-bottom:1px solid var(--line)}
 .tabs button{flex:1;border:0;border-radius:0;background:none;padding:10px 0;color:var(--dim)}
@@ -29,18 +32,30 @@ aside{grid-row:2/4;grid-column:2;border-left:1px solid var(--line);display:flex;
 .tabs .badge{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;background:var(--line);font-size:11px;margin-left:4px}
 .tabs .badge.err{background:var(--err);color:#fff}
 .pane{flex:1;overflow:auto;padding:12px 14px;display:none}.pane.on{display:block}
-.param{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;padding:9px 0;border-bottom:1px solid var(--line)}
-.param label{font-family:var(--mono);font-size:12px}.param .reset{font-size:11px;padding:1px 7px;color:var(--dim)}
-.param .ctl{grid-column:1/-1;display:flex;gap:8px;align-items:center}
-.param input[type=range]{flex:1;accent-color:var(--acc)}
-.param input[type=number]{width:74px;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:3px 5px;font-family:var(--mono);font-size:12px}
-.param input[type=text]{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:5px 7px}
-.param input[type=color]{width:44px;height:26px;border:1px solid var(--line);border-radius:4px;background:none;padding:0}
-.param.changed label::after{content:" ●";color:var(--acc)}
-.empty{color:var(--dim);padding:8px 0}
+h4{margin:14px 0 6px;font-size:11px;letter-spacing:.06em;color:var(--dim);font-weight:600}
+h4:first-child{margin-top:0}
+.sel-head{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+.sel-head .lbl{font-weight:700;font-size:15px}.sel-head .id{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.fld{display:flex;flex-direction:column;gap:3px;min-width:0}
+.fld span{font-size:11px;color:var(--dim)}
+.fld input[type=number],.fld input[type=text]{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:4px 6px;font-family:var(--mono);font-size:12px}
+.fld.changed span{color:var(--acc)}
+.prop{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.prop label{font-family:var(--mono);font-size:12px}.prop.changed label::after{content:" ●";color:var(--acc)}
+.prop .ctl{grid-column:1/-1;display:flex;gap:8px;align-items:center}
+.prop input[type=range]{flex:1;accent-color:var(--acc)}
+.prop input[type=number]{width:74px;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:3px 5px;font-family:var(--mono);font-size:12px}
+.prop input[type=text]{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:5px 7px}
+.prop input[type=color]{width:44px;height:26px;border:1px solid var(--line);border-radius:4px;background:none;padding:0}
+.row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.list .it{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer}
+.list .it:hover{background:var(--panel2)}.list .it .id{font-family:var(--mono);font-size:11px;color:var(--dim);margin-left:auto}
+.list .it .dot{width:6px;height:6px;border-radius:3px;background:var(--acc)}
+.empty{color:var(--dim);padding:6px 0}
 .addnote{display:flex;flex-direction:column;gap:6px;padding-bottom:12px;border-bottom:1px solid var(--line)}
 .addnote textarea{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px;min-height:58px;resize:vertical}
-.addnote .row{display:flex;gap:8px;align-items:center;color:var(--dim);font-family:var(--mono);font-size:12px}
+.addnote .r{display:flex;gap:8px;align-items:center;color:var(--dim);font-family:var(--mono);font-size:12px}
 .item{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;padding:9px 0;border-bottom:1px solid var(--line);align-items:start}
 .item .t{font-family:var(--mono);font-size:12px;color:var(--note);cursor:pointer}
 .item.err .t{color:var(--err)}.item.done .txt{text-decoration:line-through;color:var(--faint)}
@@ -50,25 +65,28 @@ aside{grid-row:2/4;grid-column:2;border-left:1px solid var(--line);display:flex;
 #transport{display:flex;align-items:center;gap:8px;padding:7px 12px}
 #tc{font-family:var(--mono);font-size:12px;color:var(--dim);min-width:250px}
 #shotname{color:var(--fg);font-weight:600}
-#tl{display:block;width:100%;height:150px;cursor:crosshair}
-.help{color:var(--faint);font-size:11px;padding:0 12px 8px}
+#tlwrap{max-height:190px;overflow-y:auto}
+#tl{display:block;width:100%;cursor:crosshair}
+.help{color:var(--faint);font-size:11px;padding:4px 12px 8px}
 kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-radius:3px;padding:0 4px;color:var(--dim)}
 </style></head>
 <body><div id="app">
 <header>
   <span class="name" id="name">motion studio</span><span class="meta" id="meta"></span>
   <span class="sp"></span><span id="job"></span>
+  <button id="bUndo" title="⌘Z" disabled>元に戻す</button>
   <button id="bReview">レビュー</button><button id="bDraft">下書き</button><button id="bRender" class="pri">書き出し</button>
   <button id="bOpen" disabled>開く</button>
 </header>
-<div id="stage"><img id="img" alt=""><div id="err"></div><div id="cache"></div></div>
+<div id="stage"><img id="img" alt=""><canvas id="ov"></canvas><div id="err"></div><div id="cache"></div><div id="busy">描き直し中…</div></div>
 <aside>
-  <div class="tabs"><button data-p="params" class="on">パラメータ</button><button data-p="notes">メモ<span class="badge" id="nNotes">0</span></button><button data-p="finds">エラー<span class="badge" id="nErr">0</span></button></div>
-  <div class="pane on" id="params"></div>
+  <div class="tabs"><button data-p="elem" class="on">要素</button><button data-p="params">全体</button><button data-p="notes">メモ<span class="badge" id="nNotes">0</span></button><button data-p="finds">エラー<span class="badge" id="nErr">0</span></button></div>
+  <div class="pane on" id="elem"></div>
+  <div class="pane" id="params"></div>
   <div class="pane" id="notes">
-    <div class="addnote"><div class="row"><span id="noteAt">0.00s</span> にメモ <span style="flex:1"></span><kbd>N</kbd></div>
+    <div class="addnote"><div class="r"><span id="noteAt">0.00s</span><span id="noteFor"></span> にメモ <span style="flex:1"></span><kbd>N</kbd></div>
       <textarea id="noteText" placeholder="ここが悪い、こうしたい (Claude が notes.md を読んでこの時刻だけ直す)"></textarea>
-      <div class="row"><span style="flex:1"></span><button id="noteAdd" class="pri">追加</button></div></div>
+      <div class="r"><span style="flex:1"></span><button id="noteAdd" class="pri">追加</button></div></div>
     <div id="noteList"></div>
   </div>
   <div class="pane" id="finds"><div id="findList"></div></div>
@@ -77,125 +95,225 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-r
   <div id="transport"><button id="bPlay">▶</button><button id="bPrev">−1f</button><button id="bNext">+1f</button>
     <span id="tc"></span><span id="shotname"></span><span style="flex:1"></span>
     <label style="color:var(--dim);font-size:12px"><input type="checkbox" id="loopChk" checked> ループ再生</label></div>
-  <canvas id="tl"></canvas>
-  <div class="help"><kbd>Space</kbd> 再生 · <kbd>←</kbd><kbd>→</kbd> 1 フレーム · <kbd>Shift</kbd>+矢印 1 拍 · <kbd>[</kbd><kbd>]</kbd> 前後のショット · <kbd>N</kbd> この時刻にメモ · タイムラインをクリック/ドラッグでシーク</div>
+  <div id="tlwrap"><canvas id="tl"></canvas></div>
+  <div class="help">映像の要素をクリックで選択・ドラッグで移動・四隅で拡大縮小・上のつまみで回転 · 要素の列のバーをドラッグでタイミングをずらす · <kbd>⌥</kbd>+矢印 1px 移動 (<kbd>⇧</kbd> 10px) · <kbd>⌘Z</kbd> 元に戻す · <kbd>Esc</kbd> 選択解除 · <kbd>Space</kbd> 再生 · <kbd>←</kbd><kbd>→</kbd> 1 フレーム · <kbd>[</kbd><kbd>]</kbd> ショット · <kbd>N</kbd> メモ</div>
 </div>
 </div>
 <audio id="aud" preload="auto"></audio>
 <script>
 const $=id=>document.getElementById(id);
-let I=null,ver=-1,cur=0,playing=false,inflight=false,pending=null,t0=0,f0=0,dragging=false;
-const img=$('img'),aud=$('aud'),cv=$('tl'),ctx=cv.getContext('2d');
+let I=null,ver=-1,cur=0,playing=false,inflight=false,pending=null,t0=0,f0=0;
+let NODES=[],nodesKey='',sel=null,hover=null,drag=null,undo=[];
+const img=$('img'),aud=$('aud'),tl=$('tl'),tctx=tl.getContext('2d'),ov=$('ov'),octx=ov.getContext('2d');
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const fmt=t=>t.toFixed(2)+'s';
 const tNow=()=>cur/(I?I.fps:60);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function post(u,b){return fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})}).then(r=>r.json())}
 
-// ---------- 再生
+// ================= 再生
 function show(f){if(!I)return;f=Math.max(0,Math.min(I.nframes-1,Math.round(f)));cur=f;
   $('tc').textContent=`${fmt(f/I.fps)}  #${f}  ${Math.floor(f/I.fps/(240/I.bpm))+1}小節 ${Math.floor(f/I.fps/(60/I.bpm))%4+1}拍`;
   const s=(I.shots||[]).find(s=>s.start<=f/I.fps&&f/I.fps<s.end);$('shotname').textContent=s?s.name:'';
-  $('noteAt').textContent=fmt(f/I.fps);draw();
+  $('noteAt').textContent=fmt(f/I.fps);drawTL();
   if(inflight){pending=f;return}inflight=true;const im=new Image();
-  im.onload=()=>{img.src=im.src;inflight=false;if(pending!==null){const p=pending;pending=null;show(p)}};
+  im.onload=()=>{img.src=im.src;inflight=false;$('busy').style.display='none';if(pending!==null){const p=pending;pending=null;show(p)}else if(!playing)loadNodes()};
   im.onerror=()=>{inflight=false;setTimeout(()=>show(cur),200)};im.src=`/frame/${f}.jpg?v=${ver}`}
 function tick(){if(!playing)return;let t=aud.src&&!aud.paused?aud.currentTime:f0/I.fps+(performance.now()-t0)/1000;
   let f=Math.round(t*I.fps);if(f>=I.nframes){if(!$('loopChk').checked){toggle();return}f=0;t0=performance.now();f0=0;if(aud.src)aud.currentTime=0}
   if(f!==cur)show(f);requestAnimationFrame(tick)}
 function toggle(){playing=!playing;$('bPlay').textContent=playing?'❚❚':'▶';
-  if(playing){t0=performance.now();f0=cur;if(aud.src){aud.currentTime=cur/I.fps;aud.loop=$('loopChk').checked;aud.play().catch(()=>{})}requestAnimationFrame(tick)}else aud.pause()}
+  if(playing){NODES=[];drawOV();t0=performance.now();f0=cur;if(aud.src){aud.currentTime=cur/I.fps;aud.loop=$('loopChk').checked;aud.play().catch(()=>{})}requestAnimationFrame(tick)}
+  else{aud.pause();loadNodes()}}
 function seekTo(f){show(f);if(playing){f0=cur;t0=performance.now();if(aud.src)aud.currentTime=cur/I.fps}}
 
-// ---------- タイムライン
-const ROW={ruler:[0,20],shots:[22,30],wave:[56,44],marks:[104,40]};
-function x2t(x){return x/cv.clientWidth*I.duration}function t2x(t){return t/I.duration*cv.clientWidth}
-function draw(){if(!I)return;const dpr=devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;
-  if(cv.width!==W*dpr){cv.width=W*dpr;cv.height=H*dpr}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
-  const beat=60/I.bpm,bar=beat*4;
-  // 目盛り
-  ctx.font='10px '+css('--mono');ctx.textBaseline='top';
-  for(let t=0;t<=I.duration+1e-6;t+=beat){const x=Math.round(t2x(t))+.5,isBar=Math.abs(t/bar-Math.round(t/bar))<1e-6;
-    ctx.strokeStyle=isBar?'#3a3c46':'#24262d';ctx.beginPath();ctx.moveTo(x,isBar?2:12);ctx.lineTo(x,H);ctx.stroke();
-    if(isBar){ctx.fillStyle=css('--faint');ctx.fillText(String(Math.round(t/bar)+1),x+3,2)}}
-  // ショット
-  (I.shots||[]).forEach((s,i)=>{const x=t2x(s.start),w=t2x(s.end)-x,[y,h]=ROW.shots;
-    ctx.fillStyle=i%2?'#262a3a':'#2c3247';ctx.fillRect(x+1,y,w-2,h);ctx.fillStyle=css('--fg');ctx.font='600 11px sans-serif';
-    ctx.textBaseline='middle';ctx.save();ctx.beginPath();ctx.rect(x+1,y,w-2,h);ctx.clip();ctx.fillText(s.name,x+7,y+h/2);ctx.restore()});
-  // 波形
-  const P=I.peaks||[],[wy,wh]=ROW.wave;ctx.fillStyle='#3b4a6e';
-  for(let i=0;i<P.length;i++){const x=i/P.length*W,h=P[i]*wh;ctx.fillRect(x,wy+wh/2-h/2,Math.max(W/P.length,1),h)}
-  // キュー・カット
-  (I.cues||[]).forEach(t=>{ctx.fillStyle=css('--cue');ctx.fillRect(t2x(t)-1,ROW.wave[0],2,ROW.wave[1])});
-  // メモとエラー
-  const [my]=ROW.marks;
-  (I.findings||[]).forEach(f=>{const x=t2x(f.t);ctx.fillStyle=css('--err');ctx.beginPath();ctx.moveTo(x,my+4);ctx.lineTo(x+6,my+14);ctx.lineTo(x-6,my+14);ctx.fill()});
-  (I.notes||[]).forEach(n=>{const x=t2x(n.t);ctx.fillStyle=n.done?css('--faint'):css('--note');ctx.beginPath();ctx.arc(x,my+28,5,0,7);ctx.fill()});
-  // 再生位置
-  const px=t2x(cur/I.fps);ctx.fillStyle=css('--acc');ctx.fillRect(px-1,0,2,H);ctx.beginPath();ctx.moveTo(px-6,0);ctx.lineTo(px+6,0);ctx.lineTo(px,8);ctx.fill()}
-function tlSeek(e){const r=cv.getBoundingClientRect();let t=x2t(e.clientX-r.left);if(e.shiftKey){const b=60/I.bpm;t=Math.round(t/b)*b}seekTo(t*I.fps)}
-cv.onmousedown=e=>{dragging=true;tlSeek(e)};addEventListener('mousemove',e=>{if(dragging)tlSeek(e)});addEventListener('mouseup',()=>dragging=false);
-addEventListener('resize',draw);
+// ================= 映像の上の要素
+function imgRect(){const W=ov.clientWidth,H=ov.clientHeight;if(!I)return{x:0,y:0,w:W,h:H};const a=I.width/I.height;
+  let w=W,h=W/a;if(h>H){h=H;w=H*a}return{x:(W-w)/2,y:(H-h)/2,w,h}}
+const px=(n,R)=>({l:R.x+n.box[0]*R.w,t:R.y+n.box[1]*R.h,r:R.x+n.box[2]*R.w,b:R.y+n.box[3]*R.h,ox:R.x+n.origin[0]*R.w,oy:R.y+n.origin[1]*R.h});
+async function loadNodes(){if(!I||playing)return;const key=ver+':'+cur;if(key===nodesKey)return;nodesKey=key;
+  const f=cur;try{const r=await (await fetch(`/nodes/${f}?v=${ver}`)).json();if(f!==cur)return;NODES=r;drawOV();buildElem()}catch(e){}}
+function selNode(){return NODES.find(n=>n.id===sel)}
+function handles(b){const r=9;return{tl:[b.l,b.t],tr:[b.r,b.t],bl:[b.l,b.b],br:[b.r,b.b],rot:[(b.l+b.r)/2,b.t-26],r}}
+function drawOV(){const dpr=devicePixelRatio||1,W=ov.clientWidth,H=ov.clientHeight;if(ov.width!==W*dpr||ov.height!==H*dpr){ov.width=W*dpr;ov.height=H*dpr}
+  octx.setTransform(dpr,0,0,dpr,0,0);octx.clearRect(0,0,W,H);if(!I)return;const R=imgRect();
+  for(const n of NODES){if(n.id!==hover||n.id===sel)continue;const b=px(n,R);octx.setLineDash([4,3]);octx.strokeStyle='#ffffffaa';octx.lineWidth=1;octx.strokeRect(b.l,b.t,b.r-b.l,b.b-b.t);octx.setLineDash([]);
+    tag(b.l,b.t,n.label,'#ffffffcc','#000')}
+  const n=selNode();if(!n)return;let b=px(n,R);
+  octx.save();
+  if(drag&&drag.id===n.id){const d=drag;if(d.mode==='move'){octx.translate(d.dx,d.dy)}else{octx.translate(b.ox,b.oy);octx.rotate(d.drot*Math.PI/180);octx.scale(d.ds,d.ds);octx.translate(-b.ox,-b.oy)}}
+  octx.strokeStyle=css('--sel');octx.lineWidth=1.5;octx.strokeRect(b.l,b.t,b.r-b.l,b.b-b.t);
+  const h=handles(b);octx.fillStyle='#fff';octx.strokeStyle=css('--sel');
+  for(const k of['tl','tr','bl','br']){octx.fillRect(h[k][0]-4,h[k][1]-4,8,8);octx.strokeRect(h[k][0]-4,h[k][1]-4,8,8)}
+  octx.beginPath();octx.moveTo((b.l+b.r)/2,b.t);octx.lineTo(h.rot[0],h.rot[1]);octx.stroke();octx.beginPath();octx.arc(h.rot[0],h.rot[1],5,0,7);octx.fill();octx.stroke();
+  octx.beginPath();octx.arc(b.ox,b.oy,3,0,7);octx.fillStyle=css('--sel');octx.fill();
+  octx.restore();tag(b.l,b.t,n.label,css('--sel'),'#fff');
+  if(drag&&drag.id===n.id){let s='';if(drag.mode==='move')s=`x ${fmtn(drag.base.dx+drag.dx/drag.k)}  y ${fmtn(drag.base.dy+drag.dy/drag.k)}`;
+    else if(drag.mode==='scale')s=`×${(drag.base.scale*drag.ds).toFixed(2)}`;else s=`${(drag.base.rot+drag.drot).toFixed(1)}°`;tag(b.l,b.b+4,s,'#000c','#fff')}}
+function tag(x,y,s,bg,fg){octx.font='11px '+css('--mono');const w=octx.measureText(s).width+10;octx.fillStyle=bg;octx.fillRect(x,y-18,w,17);octx.fillStyle=fg;octx.fillText(s,x+5,y-5)}
+const fmtn=v=>Math.round(v);
+function hit(x,y){const R=imgRect();let best=null,ba=1e18;for(const n of NODES){const b=px(n,R);if(x>=b.l&&x<=b.r&&y>=b.t&&y<=b.b){const a=(b.r-b.l)*(b.b-b.t);if(a<ba){ba=a;best=n}}}return best}
+function onHandle(x,y){const n=selNode();if(!n)return null;const b=px(n,imgRect()),h=handles(b);
+  if(Math.hypot(x-h.rot[0],y-h.rot[1])<9)return'rot';for(const k of['tl','tr','bl','br'])if(Math.abs(x-h[k][0])<8&&Math.abs(y-h[k][1])<8)return'scale';return null}
+const base=n=>({dx:n.edits.dx||0,dy:n.edits.dy||0,dz:n.edits.dz||0,scale:n.edits.scale??1,rot:n.edits.rot||0,opacity:n.edits.opacity??1,dt:n.edits.dt||0});
+ov.onmousedown=e=>{if(!I)return;if(playing)toggle();const r=ov.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+  const hm=onHandle(x,y);let n=hm?selNode():hit(x,y);if(!n){select(null);return}select(n.id);
+  const R=imgRect(),b=px(n,R);drag={id:n.id,mode:hm||'move',x0:x,y0:y,dx:0,dy:0,ds:1,drot:0,base:base(n),k:R.w/I.width,ox:b.ox,oy:b.oy,moved:false}};
+function ovMove(e){const r=ov.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+  if(drag&&drag.mode!=='lane'){if(Math.hypot(x-drag.x0,y-drag.y0)<2&&!drag.moved)return;const d=drag;d.moved=true;
+    if(d.mode==='move'){d.dx=x-d.x0;d.dy=y-d.y0;if(e.shiftKey){Math.abs(d.dx)>Math.abs(d.dy)?d.dy=0:d.dx=0}}
+    else if(d.mode==='scale'){d.ds=Math.max(.05,Math.hypot(x-d.ox,y-d.oy)/Math.max(Math.hypot(d.x0-d.ox,d.y0-d.oy),1))}
+    else{let a=(Math.atan2(y-d.oy,x-d.ox)-Math.atan2(d.y0-d.oy,d.x0-d.ox))*180/Math.PI;if(e.shiftKey)a=Math.round(a/15)*15;d.drot=a}
+    drawOV();return}
+  if(e.target===ov&&!drag){const n=hit(x,y),h=onHandle(x,y);ov.style.cursor=h==='rot'?'grab':h?'nwse-resize':n?'move':'default';const id=n?n.id:null;if(id!==hover){hover=id;drawOV()}}}
+addEventListener('mousemove',ovMove);
+addEventListener('mouseup',e=>{if(drag&&drag.mode!=='lane')ovMove(e);const d=drag;if(d&&d.mode==='lane')return;drag=null;if(!d||!d.moved){drawOV();return}
+  const u={};if(d.mode==='move'){u.dx=Math.round(d.base.dx+d.dx/d.k);u.dy=Math.round(d.base.dy+d.dy/d.k)}
+  else if(d.mode==='scale')u.scale=+(d.base.scale*d.ds).toFixed(3);else u.rot=+(d.base.rot+d.drot).toFixed(1);
+  edit(d.id,u)});
 
-// ---------- パラメータ
+// ================= 差分の保存と元に戻す
+function edit(id,updates){const prev=(I.edits&&I.edits[id])?JSON.parse(JSON.stringify(I.edits[id])):null;undo.push({id,prev});$('bUndo').disabled=false;
+  $('busy').style.display='block';return post('/edit',{id,updates}).then(d=>{I.edits=d;afterEdit()})}
+function doUndo(){const u=undo.pop();$('bUndo').disabled=!undo.length;if(!u)return;$('busy').style.display='block';
+  post('/edit',{id:u.id,replace:true,value:u.prev}).then(d=>{I.edits=d;afterEdit()})}
+function afterEdit(){nodesKey='';const n=selNode();if(n)n.edits=I.edits[n.id]||{};buildElem();drawOV()}
+$('bUndo').onclick=doUndo;
+
+// ================= 要素のインスペクタ
+function select(id){sel=id;$('noteFor').textContent=id?` (${id})`:'';if(id)tab('elem');buildElem();drawOV();drawTL()}
+function buildElem(){const el=$('elem');const n=selNode();const E=(I&&I.edits)||{};
+  if(!n){const edited=Object.keys(E);
+    el.innerHTML=`<h4>この画面の要素</h4><div class="list" id="nl"></div><h4>変更した要素 (${edited.length})</h4><div class="list" id="el2"></div>
+      <div class="empty" style="margin-top:12px">映像の上をクリックすると要素を選べる。変更は作品の <code>edits.json</code> に要素の名前ごとに保存され、Claude がそれを読んで作業する。</div>`;
+    const nl=$('nl');if(!NODES.length)nl.innerHTML='<div class="empty">停止中のコマで表示される</div>';
+    NODES.forEach(x=>{const d=document.createElement('div');d.className='it';d.innerHTML=`${E[x.id]?'<span class="dot"></span>':''}<span>${esc(x.label)}</span><span class="id">${esc(x.id)}</span>`;d.onclick=()=>select(x.id);d.onmouseenter=()=>{hover=x.id;drawOV()};nl.append(d)});
+    edited.forEach(id=>{const d=document.createElement('div');d.className='it';d.innerHTML=`<span class="dot"></span><span>${esc((I.nodes[id]||{}).label||id)}</span><span class="id">${esc(Object.keys(E[id]).join(' '))}</span>`;
+      d.onclick=()=>{const s=(I.nodes[id]||{}).seen;if(s&&!(s[0]<=tNow()&&tNow()<=s[1]))seekTo(s[0]*I.fps+6);select(id)};$('el2').append(d)});return}
+  const b=base(n),ed=n.edits||{};
+  const F=(k,lab,v,step)=>`<label class="fld${ed[k]!==undefined?' changed':''}"><span>${lab}</span><input type="number" data-k="${k}" step="${step}" value="${v}"></label>`;
+  el.innerHTML=`<div class="sel-head"><span class="lbl">${esc(n.label)}</span><span class="id">${esc(n.id)} · ${n.space}</span></div>
+    <h4>配置</h4><div class="grid2">${F('dx','横へ (px)',b.dx,1)}${F('dy','縦へ (px)',b.dy,1)}${n.space==='3d'?F('dz','奥へ (px)',b.dz,10):''}${F('scale','大きさ (倍)',b.scale,.01)}${F('rot','回転 (°)',b.rot,1)}${F('opacity','不透明度',b.opacity,.05)}${F('dt','時刻のずれ (秒)',b.dt,.05)}</div>
+    <label style="display:flex;gap:6px;align-items:center;margin-top:10px;color:var(--dim)"><input type="checkbox" id="hid" ${ed.hidden?'checked':''}> 隠す</label>
+    <h4>中身</h4><div id="props"></div>
+    <div class="row"><button class="sm" id="rs">この要素の変更を消す</button><button class="sm" id="nt">この要素にメモ</button><button class="sm" id="ds">選択を解除</button></div>`;
+  el.querySelectorAll('.fld input').forEach(i=>i.onchange=()=>edit(n.id,{[i.dataset.k]:+i.value}));
+  $('hid').onchange=e=>edit(n.id,{hidden:e.target.checked||null});
+  $('rs').onclick=()=>{undo.push({id:n.id,prev:ed});$('bUndo').disabled=false;post('/edit',{id:n.id,replace:true,value:null}).then(d=>{I.edits=d;afterEdit()})};
+  $('nt').onclick=()=>{tab('notes');$('noteText').focus()};$('ds').onclick=()=>select(null);
+  const P=$('props'),keys=Object.keys(n.props||{});if(!keys.length)P.innerHTML='<div class="empty">この要素はコードで中身の値を公開していない</div>';
+  keys.forEach(k=>{const p=n.props[k],changed=(ed.props||{})[k]!==undefined;const d=document.createElement('div');d.className='prop'+(changed?' changed':'');
+    d.innerHTML=`<label>${esc(k)}</label><button class="sm">戻す</button><div class="ctl"></div>`;const c=d.querySelector('.ctl');let i;
+    if(p.type==='color'){i=document.createElement('input');i.type='color';i.value=p.value.slice(0,7)}
+    else if(p.type==='number'){i=document.createElement('input');i.type='number';i.step='any';i.value=p.value}
+    else if(p.type==='bool'){i=document.createElement('input');i.type='checkbox';i.checked=p.value}
+    else{i=document.createElement('input');i.type='text';i.value=p.value}
+    i.onchange=()=>edit(n.id,{props:{[k]:p.type==='number'?+i.value:p.type==='bool'?i.checked:i.value}});c.append(i);
+    d.querySelector('button').onclick=()=>edit(n.id,{props:{[k]:null}});P.append(d)})}
+
+// ================= 全体のパラメータ (tune)
 let tuneTimer=null,tunePending={};
-function sendTune(k,v,now){tunePending[k]=v;clearTimeout(tuneTimer);tuneTimer=setTimeout(()=>{const b=tunePending;tunePending={};post('/tune',b)},now?0:350)}
+function sendTune(k,v,now){tunePending[k]=v;clearTimeout(tuneTimer);tuneTimer=setTimeout(()=>{const b=tunePending;tunePending={};$('busy').style.display='block';post('/tune',b)},now?0:350)}
 function buildParams(){const el=$('params');el.innerHTML='';const T=I.tune||[];
-  if(!T.length){el.innerHTML='<div class="empty">この作品は tune() でパラメータを宣言していない。<br>project.py で <code>P = tune(HERE, T_RUN=(5.0, 3, 8), ACCENT="#FACC15")</code> のように書くとここで調整できる。</div>';return}
-  T.forEach(p=>{const d=document.createElement('div');d.className='param'+(JSON.stringify(p.value)!==JSON.stringify(p.default)?' changed':'');
-    d.innerHTML=`<label>${p.key}</label><button class="reset" title="既定値 ${p.default}">戻す</button><div class="ctl"></div>`;const c=d.querySelector('.ctl');
+  if(!T.length){el.innerHTML='<div class="empty">この作品は tune() で全体のパラメータを宣言していない。</div>';return}
+  el.insertAdjacentHTML('beforeend','<div class="empty" style="margin-bottom:6px">作品全体の時刻・色・文言。音の作り直しを伴うので反映に数秒かかる。</div>');
+  T.forEach(p=>{const d=document.createElement('div');d.className='prop'+(JSON.stringify(p.value)!==JSON.stringify(p.default)?' changed':'');
+    d.innerHTML=`<label>${esc(p.key)}</label><button class="sm">戻す</button><div class="ctl"></div>`;const c=d.querySelector('.ctl');
     if(p.type==='number'){const r=document.createElement('input');r.type='range';r.min=p.min??0;r.max=p.max??Math.max(1,p.default*2);r.step=p.step;r.value=p.value;
       const n=document.createElement('input');n.type='number';n.step=p.step;n.value=p.value;
       r.oninput=()=>{n.value=r.value;sendTune(p.key,+r.value)};n.onchange=()=>{r.value=n.value;sendTune(p.key,+n.value,true)};c.append(r,n)}
-    else if(p.type==='color'){const i=document.createElement('input');i.type='color';i.value=p.value;const s=document.createElement('span');s.className='rule';s.textContent=p.value;
-      i.oninput=()=>{s.textContent=i.value;sendTune(p.key,i.value)};c.append(i,s)}
+    else if(p.type==='color'){const i=document.createElement('input');i.type='color';i.value=p.value;i.oninput=()=>sendTune(p.key,i.value);c.append(i)}
     else if(p.type==='bool'){const i=document.createElement('input');i.type='checkbox';i.checked=p.value;i.onchange=()=>sendTune(p.key,i.checked,true);c.append(i)}
     else{const i=document.createElement('input');i.type='text';i.value=p.value;i.onchange=()=>sendTune(p.key,i.value,true);c.append(i)}
-    d.querySelector('.reset').onclick=()=>post('/tune',{[p.key]:null});el.append(d)})}
+    d.querySelector('button').onclick=()=>post('/tune',{[p.key]:null});el.append(d)})}
 
-// ---------- メモとエラー
+// ================= タイムライン
+const ROW={ruler:20,shots:28,wave:40,marks:26,lane:18};
+function lanes(){return Object.entries((I&&I.nodes)||{}).sort((a,b)=>a[1].seen[0]-b[1].seen[0])}
+const LBL=120;
+function tw(){return tl.clientWidth-LBL}
+function x2t(x){return (x-LBL)/tw()*I.duration}function t2x(t){return LBL+t/I.duration*tw()}
+function drawTL(){if(!I)return;const L=lanes(),H=ROW.ruler+ROW.shots+ROW.wave+ROW.marks+L.length*ROW.lane+6;
+  const dpr=devicePixelRatio||1,W=tl.clientWidth;tl.style.height=H+'px';if(tl.width!==W*dpr||tl.height!==H*dpr){tl.width=W*dpr;tl.height=H*dpr}
+  const c=tctx;c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,W,H);const beat=60/I.bpm,bar=beat*4;
+  c.font='10px '+css('--mono');c.textBaseline='top';
+  for(let t=0;t<=I.duration+1e-6;t+=beat){const x=Math.round(t2x(t))+.5,isBar=Math.abs(t/bar-Math.round(t/bar))<1e-6;
+    c.strokeStyle=isBar?'#3a3c46':'#22242a';c.beginPath();c.moveTo(x,isBar?2:12);c.lineTo(x,H);c.stroke();if(isBar){c.fillStyle=css('--faint');c.fillText(String(Math.round(t/bar)+1),x+3,2)}}
+  let y=ROW.ruler;c.textBaseline='middle';c.fillStyle=css('--dim');c.font='11px sans-serif';
+  c.fillText('ショット',8,y+ROW.shots/2);c.fillText('音',8,y+ROW.shots+ROW.wave/2);c.fillText('キュー・メモ',8,y+ROW.shots+ROW.wave+ROW.marks/2);
+  (I.shots||[]).forEach((s,i)=>{const x=t2x(s.start),w=t2x(s.end)-x;c.fillStyle=i%2?'#262a3a':'#2c3247';c.fillRect(x+1,y+2,w-2,ROW.shots-4);
+    c.fillStyle=css('--fg');c.font='600 11px sans-serif';c.save();c.beginPath();c.rect(x+1,y,w-2,ROW.shots);c.clip();c.fillText(s.name,x+7,y+ROW.shots/2);c.restore()});
+  y+=ROW.shots;const P=I.peaks||[];c.fillStyle='#3b4a6e';for(let i=0;i<P.length;i++){const x=LBL+i/P.length*tw(),h=P[i]*(ROW.wave-6);c.fillRect(x,y+ROW.wave/2-h/2,Math.max(tw()/P.length,1),h)}
+  (I.cues||[]).forEach(t=>{c.fillStyle=css('--cue');c.fillRect(t2x(t)-1,y,2,ROW.wave)});
+  y+=ROW.wave;(I.findings||[]).forEach(f=>{const x=t2x(f.t);c.fillStyle=css('--err');c.beginPath();c.moveTo(x,y+4);c.lineTo(x+6,y+14);c.lineTo(x-6,y+14);c.fill()});
+  (I.notes||[]).forEach(n=>{c.fillStyle=n.done?css('--faint'):css('--note');c.beginPath();c.arc(t2x(n.t),y+ROW.marks/2,5,0,7);c.fill()});
+  y+=ROW.marks;const E=I.edits||{};
+  L.forEach(([id,v],i)=>{const yy=y+i*ROW.lane,on=id===sel;if(on){c.fillStyle='#1f2a3d';c.fillRect(0,yy,W,ROW.lane)}
+    c.fillStyle=on?css('--fg'):css('--dim');c.font='11px sans-serif';c.save();c.beginPath();c.rect(0,yy,LBL-6,ROW.lane);c.clip();c.fillText(v.label,8,yy+ROW.lane/2);c.restore();
+    const sh=(drag&&drag.mode==='lane'&&drag.id===id)?drag.dts:0;let last=0;
+    c.fillStyle=on?css('--sel'):(E[id]?'#7a4a36':'#3a3f52');
+    (v.runs||[v.seen]).forEach(([a,b])=>{c.fillRect(t2x(a+sh),yy+3,Math.max(t2x(b+sh)-t2x(a+sh),3),ROW.lane-6);last=Math.max(last,b+sh)});
+    if(E[id]&&E[id].dt){c.fillStyle=css('--acc');c.fillText(`${E[id].dt>0?'+':''}${E[id].dt.toFixed(2)}s`,Math.min(t2x(last)+4,W-50),yy+ROW.lane/2)}});
+  const x=t2x(cur/I.fps);c.fillStyle=css('--acc');c.fillRect(x-1,0,2,H);c.beginPath();c.moveTo(x-6,0);c.lineTo(x+6,0);c.lineTo(x,8);c.fill()}
+let tlDrag=false;
+tl.onmousedown=e=>{if(!I)return;const r=tl.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+  const ly=ROW.ruler+ROW.shots+ROW.wave+ROW.marks,L=lanes(),i=Math.floor((y-ly)/ROW.lane);
+  if(y>=ly&&i>=0&&i<L.length){const [id,v]=L[i];select(id);const t=x2t(x);
+    if((v.runs||[v.seen]).some(([a,b])=>t>=a-.05&&t<=b+.05)){drag={id,mode:'lane',x0:x,dts:0,base:(I.edits[id]||{}).dt||0,moved:false};return}
+    if(!(v.seen[0]<=tNow()&&tNow()<=v.seen[1]))seekTo((v.seen[0]+.05)*I.fps);return}
+  tlDrag=true;tlSeek(e)};
+function tlSeek(e){const r=tl.getBoundingClientRect();let t=Math.max(0,x2t(e.clientX-r.left));if(e.shiftKey){const b=60/I.bpm;t=Math.round(t/b)*b}seekTo(t*I.fps)}
+function laneMove(e){const r=tl.getBoundingClientRect();let d=(e.clientX-r.left-drag.x0)/tw()*I.duration;
+  const b=60/I.bpm/4;if(!e.altKey)d=Math.round(d/b)*b;drag.dts=d;drag.moved=true;drawTL()}
+addEventListener('mousemove',e=>{if(tlDrag)tlSeek(e);if(drag&&drag.mode==='lane')laneMove(e)});
+addEventListener('mouseup',e=>{tlDrag=false;if(drag&&drag.mode==='lane')laneMove(e);if(drag&&drag.mode==='lane'){const d=drag;drag=null;if(d.moved&&Math.abs(d.dts)>1e-6)edit(d.id,{dt:+(d.base+d.dts).toFixed(3)});drawTL()}});
+
+// ================= メモとエラー
 function buildNotes(){const el=$('noteList');el.innerHTML='';const N=I.notes||[];$('nNotes').textContent=N.filter(n=>!n.done).length;
-  if(!N.length){el.innerHTML='<div class="empty">メモはまだ無い。気になるコマで N を押して書く。</div>'}
+  if(!N.length)el.innerHTML='<div class="empty">メモはまだ無い。気になるコマで N を押して書く。</div>';
   N.forEach(n=>{const d=document.createElement('div');d.className='item'+(n.done?' done':'');
     d.innerHTML=`<span class="t">${fmt(n.t)}</span><span class="txt"></span><span><input type="checkbox" title="済み" ${n.done?'checked':''}><button class="x" title="削除">✕</button></span>`;
     d.querySelector('.txt').textContent=n.text;d.querySelector('.t').onclick=()=>seekTo(n.t*I.fps);
     d.querySelector('input').onchange=e=>post('/notes/update',{id:n.id,done:e.target.checked}).then(poll1);
     d.querySelector('.x').onclick=()=>post('/notes/update',{id:n.id,delete:true}).then(poll1);el.append(d)})}
 function buildFinds(){const el=$('findList');el.innerHTML='';const F=I.findings||[];const b=$('nErr');b.textContent=F.length;b.className='badge'+(F.length?' err':'');
-  if(!F.length){el.innerHTML='<div class="empty">最新のレビューでエラーは 0 件。レビューを実行すると、等倍の検査の結果がここに出る。</div>'}
-  F.forEach(f=>{const d=document.createElement('div');d.className='item err';
-    d.innerHTML=`<span class="t">${fmt(f.t)}</span><span><div class="rule"></div><div class="txt"></div></span><span></span>`;
+  if(!F.length)el.innerHTML='<div class="empty">最新のレビューでエラーは 0 件。</div>';
+  F.forEach(f=>{const d=document.createElement('div');d.className='item err';d.innerHTML=`<span class="t">${fmt(f.t)}</span><span><div class="rule"></div><div class="txt"></div></span><span></span>`;
     d.querySelector('.rule').textContent=f.rule;d.querySelector('.txt').textContent=f.detail;d.querySelector('.t').onclick=()=>seekTo(f.t*I.fps);el.append(d)})}
-function addNote(){const t=$('noteText').value.trim();if(!t)return;post('/notes/add',{t:+tNow().toFixed(2),text:t}).then(()=>{$('noteText').value='';poll1()})}
+function addNote(){let t=$('noteText').value.trim();if(!t)return;if(sel)t=`[${sel}] `+t;post('/notes/add',{t:+tNow().toFixed(2),text:t}).then(()=>{$('noteText').value='';poll1()})}
 $('noteAdd').onclick=addNote;$('noteText').onkeydown=e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();addNote()}if(e.key==='Escape')e.target.blur()};
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button,.pane').forEach(x=>x.classList.remove('on'));b.classList.add('on');$(b.dataset.p).classList.add('on')});
 const tab=p=>document.querySelector(`.tabs button[data-p=${p}]`).click();
 
-// ---------- ジョブ
+// ================= ジョブ
 $('bReview').onclick=()=>post('/review').then(poll1);$('bDraft').onclick=()=>post('/render',{draft:true}).then(poll1);
 $('bRender').onclick=()=>post('/render',{draft:false}).then(poll1);$('bOpen').onclick=()=>post('/open');
 let lastJob='';
-function showJob(j){const e=$('job');['bReview','bDraft','bRender'].forEach(id=>$(id).disabled=j.running);
-  if(!j.name){e.textContent='';return}
+function showJob(j){const e=$('job');['bReview','bDraft','bRender'].forEach(id=>$(id).disabled=j.running);if(!j.name){e.textContent='';return}
   e.className=j.running?'run':(j.code===0?'good':'bad');e.textContent=j.running?`${j.name}: ${j.last}`:`${j.name}: ${j.code===0?'完了':'失敗'}  ${j.last}`;
   const key=j.name+j.running+j.code;if(lastJob&&key!==lastJob&&!j.running&&j.name==='レビュー')tab('finds');lastJob=key;$('bOpen').disabled=!I.output}
 
-// ---------- 状態の取得
+// ================= 状態の取得
 let sig='';
 async function poll1(){try{const j=await (await fetch('/info')).json();
-  const e=$('err');e.style.display=j.error?'block':'none';e.textContent=j.error||'';
-  $('cache').style.width=(100*j.cached/j.nframes)+'%';
-  if(j.version!==ver){const first=!I;I=j;ver=j.version;$('name').textContent=j.name;
+  const e=$('err');e.style.display=j.error?'block':'none';e.textContent=j.error||'';$('cache').style.width=(100*j.cached/j.nframes)+'%';
+  if(j.version!==ver){const first=!I;I=j;ver=j.version;nodesKey='';$('name').textContent=j.name;
     $('meta').textContent=`${j.width}×${j.height} · ${j.fps}fps · ${j.duration?.toFixed?.(1)}s · ${j.bpm} BPM${j.loop?' · ループ':''}`;
-    if(j.audio)aud.src='/audio.wav?v='+ver;buildParams();show(first?0:cur)}else I=Object.assign(I,j);
-  const s=JSON.stringify([j.notes,j.findings]);if(s!==sig){sig=s;buildNotes();buildFinds();draw()}
+    if(j.audio&&!aud.src.includes('v='+ver))aud.src='/audio.wav?v='+ver;buildParams();if(!sel)buildElem();show(first?0:cur)}
+  else{const keepEdits=I.edits;I=Object.assign(I,j);if(!j.edits)I.edits=keepEdits}
+  const s=JSON.stringify([j.notes,j.findings,j.nodes,j.edits]);if(s!==sig){sig=s;buildNotes();buildFinds();drawTL();if(!sel)buildElem()}
   if(j.job)showJob(j.job)}catch(e){}}
-async function poll(){await poll1();setTimeout(poll,500)}
+async function poll(){await poll1();setTimeout(poll,400)}
 
 document.onkeydown=e=>{if(e.target.matches('input,textarea'))return;if(!I)return;const beat=Math.round(I.fps*60/I.bpm);
-  if(e.code==='Space'){e.preventDefault();toggle()}
+  if((e.metaKey||e.ctrlKey)&&e.key==='z'){e.preventDefault();doUndo();return}
+  if(e.altKey&&sel&&e.key.startsWith('Arrow')){e.preventDefault();const n=selNode();if(!n)return;const st=e.shiftKey?10:1,b=base(n);
+    const u=e.key==='ArrowLeft'?{dx:b.dx-st}:e.key==='ArrowRight'?{dx:b.dx+st}:e.key==='ArrowUp'?{dy:b.dy-st}:{dy:b.dy+st};n.edits=Object.assign({},n.edits,u);edit(n.id,u);return}
+  if(e.code==='Space'){e.preventDefault();toggle()}else if(e.key==='Escape')select(null);
   else if(e.code==='ArrowLeft')seekTo(cur-(e.shiftKey?beat:1));else if(e.code==='ArrowRight')seekTo(cur+(e.shiftKey?beat:1));
   else if(e.key==='['||e.key===']'){const t=tNow(),S=I.shots||[];const s=e.key===']'?S.find(s=>s.start>t+1e-3):[...S].reverse().find(s=>s.start<t-1e-3);if(s)seekTo(s.start*I.fps)}
   else if(e.key==='n'||e.key==='N'){e.preventDefault();if(playing)toggle();tab('notes');$('noteText').focus()}};
 $('bPlay').onclick=toggle;$('bPrev').onclick=()=>seekTo(cur-1);$('bNext').onclick=()=>seekTo(cur+1);
+addEventListener('resize',()=>{drawOV();drawTL()});
 poll();
 </script></body></html>
