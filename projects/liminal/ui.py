@@ -17,7 +17,7 @@ pal = Palette(
 MONO = "sans-mono"
 
 
-def background(c: skia.Canvas, ctx, glow: float = 1.0, grid_alpha: float = 1.0) -> None:
+def background(c: skia.Canvas, ctx, glow: float = 1.0, grid_alpha: float = 1.0, drift: float = 6.0) -> None:
     """暗いグラデーション + 「+」の格子 + 右上の青いにじみ。"""
     W, H = ctx.W, ctx.H
     p = skia.Paint(Shader=skia.GradientShader.MakeLinear(
@@ -30,7 +30,7 @@ def background(c: skia.Canvas, ctx, glow: float = 1.0, grid_alpha: float = 1.0) 
         c.drawRect(skia.Rect.MakeWH(W, H), g)
     if grid_alpha > 0:
         step = 120
-        off = (ctx.t * 6) % step
+        off = (ctx.t * drift) % step
         pt = draw.paint(pal.grid, stroke=2, alpha=grid_alpha, cap="butt")
         for x in np.arange(-step, W + step, step) + off:
             for y in np.arange(-step, H + step, step) + off * 0.5:
