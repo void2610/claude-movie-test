@@ -74,7 +74,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-r
 <header>
   <span class="name" id="name">motion studio</span><span class="meta" id="meta"></span>
   <span class="sp"></span><span id="job"></span>
-  <button id="bUndo" title="⌘Z" disabled>元に戻す</button>
+  <button id="bUndo" title="⌘Z" disabled>元に戻す</button><button id="bRedo" title="⇧⌘Z" disabled>やり直す</button>
   <button id="bReview">レビュー</button><button id="bDraft">下書き</button><button id="bRender" class="pri">書き出し</button>
   <button id="bOpen" disabled>開く</button>
 </header>
@@ -96,14 +96,14 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-r
     <span id="tc"></span><span id="shotname"></span><span style="flex:1"></span>
     <label style="color:var(--dim);font-size:12px"><input type="checkbox" id="loopChk" checked> ループ再生</label></div>
   <div id="tlwrap"><canvas id="tl"></canvas></div>
-  <div class="help">映像の要素をクリックで選択・ドラッグで移動・四隅で拡大縮小・上のつまみで回転 · 要素の列のバーをドラッグでタイミングをずらす · <kbd>⌥</kbd>+矢印 1px 移動 (<kbd>⇧</kbd> 10px) · <kbd>⌘Z</kbd> 元に戻す · <kbd>Esc</kbd> 選択解除 · <kbd>Space</kbd> 再生 · <kbd>←</kbd><kbd>→</kbd> 1 フレーム · <kbd>[</kbd><kbd>]</kbd> ショット · <kbd>N</kbd> メモ</div>
+  <div class="help">映像の要素をクリックで選択・ドラッグで移動・四隅で拡大縮小・上のつまみで回転 · 要素の列のバーをドラッグでタイミングをずらす · <kbd>⌥</kbd>+矢印 1px 移動 (<kbd>⇧</kbd> 10px) · <kbd>⌘Z</kbd> 元に戻す · <kbd>⇧⌘Z</kbd> やり直す · <kbd>Esc</kbd> 選択解除 · <kbd>Space</kbd> 再生 · <kbd>←</kbd><kbd>→</kbd> 1 フレーム · <kbd>[</kbd><kbd>]</kbd> ショット · <kbd>N</kbd> メモ</div>
 </div>
 </div>
 <audio id="aud" preload="auto"></audio>
 <script>
 const $=id=>document.getElementById(id);
 let I=null,ver=-1,cur=0,playing=false,inflight=false,pending=null,t0=0,f0=0;
-let NODES=[],nodesKey='',sel=null,hover=null,drag=null,undo=[];
+let NODES=[],nodesKey='',sel=null,hover=null,drag=null,undo=[],redo=[];
 const img=$('img'),aud=$('aud'),tl=$('tl'),tctx=tl.getContext('2d'),ov=$('ov'),octx=ov.getContext('2d');
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const fmt=t=>t.toFixed(2)+'s';
@@ -172,13 +172,24 @@ addEventListener('mouseup',e=>{if(drag&&drag.mode!=='lane')ovMove(e);const d=dra
   else if(d.mode==='scale')u.scale=+(d.base.scale*d.ds).toFixed(3);else u.rot=+(d.base.rot+d.drot).toFixed(1);
   edit(d.id,u)});
 
-// ================= 差分の保存と元に戻す
-function edit(id,updates){const prev=(I.edits&&I.edits[id])?JSON.parse(JSON.stringify(I.edits[id])):null;undo.push({id,prev});$('bUndo').disabled=false;
-  $('busy').style.display='block';return post('/edit',{id,updates}).then(d=>{I.edits=d;afterEdit()})}
-function doUndo(){const u=undo.pop();$('bUndo').disabled=!undo.length;if(!u)return;$('busy').style.display='block';
-  post('/edit',{id:u.id,replace:true,value:u.prev}).then(d=>{I.edits=d;afterEdit()})}
-function afterEdit(){nodesKey='';const n=selNode();if(n)n.edits=I.edits[n.id]||{};buildElem();drawOV()}
-$('bUndo').onclick=doUndo;
+// ================= 差分の保存と履歴 (元に戻す・やり直す)
+const clone=o=>o==null?null:JSON.parse(JSON.stringify(o));
+function histUI(){$('bUndo').disabled=!undo.length;$('bRedo').disabled=!redo.length}
+async function sendEdit(body){$('busy').style.display='block';
+  const r=await post('/edit',Object.assign({frame:cur},body));I.edits=r.edits;
+  // サーバーは今のコマを描き終えてから返すので、そのまま表示すれば待たずに更新される
+  ver=r.version;nodesKey='';show(cur);afterEdit();return r.edits}
+async function edit(id,updates){const prev=clone((I.edits||{})[id]);const d=await sendEdit({id,updates});
+  undo.push({kind:'edit',id,prev,next:clone(d[id])});redo=[];histUI()}
+async function replaceEdit(id,value){const prev=clone((I.edits||{})[id]);await sendEdit({id,replace:true,value});
+  undo.push({kind:'edit',id,prev,next:clone(value)});redo=[];histUI()}
+async function applyStep(h,dir){const v=dir<0?h.prev:h.next;
+  if(h.kind==='edit'){if(h.id&&h.id!==sel&&NODES.some(n=>n.id===h.id))sel=h.id;await sendEdit({id:h.id,replace:true,value:v})}
+  else{$('busy').style.display='block';await post('/tune',v)}}
+async function doUndo(){const h=undo.pop();if(!h)return;histUI();await applyStep(h,-1);redo.push(h);histUI()}
+async function doRedo(){const h=redo.pop();if(!h)return;histUI();await applyStep(h,1);undo.push(h);histUI()}
+function afterEdit(){const n=selNode();if(n)n.edits=(I.edits||{})[n.id]||{};buildElem();drawOV();drawTL()}
+$('bUndo').onclick=doUndo;$('bRedo').onclick=doRedo;
 
 // ================= 要素のインスペクタ
 function select(id){sel=id;$('noteFor').textContent=id?` (${id})`:'';if(id)tab('elem');buildElem();drawOV();drawTL()}
@@ -199,7 +210,7 @@ function buildElem(){const el=$('elem');const n=selNode();const E=(I&&I.edits)||
     <div class="row"><button class="sm" id="rs">この要素の変更を消す</button><button class="sm" id="nt">この要素にメモ</button><button class="sm" id="ds">選択を解除</button></div>`;
   el.querySelectorAll('.fld input').forEach(i=>i.onchange=()=>edit(n.id,{[i.dataset.k]:+i.value}));
   $('hid').onchange=e=>edit(n.id,{hidden:e.target.checked||null});
-  $('rs').onclick=()=>{undo.push({id:n.id,prev:ed});$('bUndo').disabled=false;post('/edit',{id:n.id,replace:true,value:null}).then(d=>{I.edits=d;afterEdit()})};
+  $('rs').onclick=()=>replaceEdit(n.id,null);
   $('nt').onclick=()=>{tab('notes');$('noteText').focus()};$('ds').onclick=()=>select(null);
   const P=$('props'),keys=Object.keys(n.props||{});if(!keys.length)P.innerHTML='<div class="empty">この要素はコードで中身の値を公開していない</div>';
   keys.forEach(k=>{const p=n.props[k],changed=(ed.props||{})[k]!==undefined;const d=document.createElement('div');d.className='prop'+(changed?' changed':'');
@@ -212,8 +223,11 @@ function buildElem(){const el=$('elem');const n=selNode();const E=(I&&I.edits)||
     d.querySelector('button').onclick=()=>edit(n.id,{props:{[k]:null}});P.append(d)})}
 
 // ================= 全体のパラメータ (tune)
-let tuneTimer=null,tunePending={};
-function sendTune(k,v,now){tunePending[k]=v;clearTimeout(tuneTimer);tuneTimer=setTimeout(()=>{const b=tunePending;tunePending={};$('busy').style.display='block';post('/tune',b)},now?0:350)}
+let tuneTimer=null,tunePending={},tunePrev={};
+const tuneVal=k=>{const p=(I.tune||[]).find(p=>p.key===k);return p?(JSON.stringify(p.value)===JSON.stringify(p.default)?null:p.value):null};
+function sendTune(k,v,now){if(!(k in tunePending))tunePrev[k]=tuneVal(k);tunePending[k]=v;clearTimeout(tuneTimer);
+  tuneTimer=setTimeout(()=>{const b=tunePending,pv=tunePrev;tunePending={};tunePrev={};$('busy').style.display='block';
+    post('/tune',b);undo.push({kind:'tune',prev:pv,next:b});redo=[];histUI()},now?0:350)}
 function buildParams(){const el=$('params');el.innerHTML='';const T=I.tune||[];
   if(!T.length){el.innerHTML='<div class="empty">この作品は tune() で全体のパラメータを宣言していない。</div>';return}
   el.insertAdjacentHTML('beforeend','<div class="empty" style="margin-bottom:6px">作品全体の時刻・色・文言。音の作り直しを伴うので反映に数秒かかる。</div>');
@@ -225,7 +239,7 @@ function buildParams(){const el=$('params');el.innerHTML='';const T=I.tune||[];
     else if(p.type==='color'){const i=document.createElement('input');i.type='color';i.value=p.value;i.oninput=()=>sendTune(p.key,i.value);c.append(i)}
     else if(p.type==='bool'){const i=document.createElement('input');i.type='checkbox';i.checked=p.value;i.onchange=()=>sendTune(p.key,i.checked,true);c.append(i)}
     else{const i=document.createElement('input');i.type='text';i.value=p.value;i.onchange=()=>sendTune(p.key,i.value,true);c.append(i)}
-    d.querySelector('button').onclick=()=>post('/tune',{[p.key]:null});el.append(d)})}
+    d.querySelector('button').onclick=()=>{const pv={[p.key]:tuneVal(p.key)};post('/tune',{[p.key]:null});undo.push({kind:'tune',prev:pv,next:{[p.key]:null}});redo=[];histUI()};el.append(d)})}
 
 // ================= タイムライン
 const ROW={ruler:20,shots:28,wave:40,marks:26,lane:18};
@@ -305,8 +319,11 @@ async function poll1(){try{const j=await (await fetch('/info')).json();
   if(j.job)showJob(j.job)}catch(e){}}
 async function poll(){await poll1();setTimeout(poll,400)}
 
-document.onkeydown=e=>{if(e.target.matches('input,textarea'))return;if(!I)return;const beat=Math.round(I.fps*60/I.bpm);
-  if((e.metaKey||e.ctrlKey)&&e.key==='z'){e.preventDefault();doUndo();return}
+document.addEventListener('focusin',e=>{if(e.target.matches('input'))e.target.dataset.orig=e.target.type==='checkbox'?e.target.checked:e.target.value});
+document.onkeydown=e=>{const mod=e.metaKey||e.ctrlKey,k=e.key.toLowerCase();
+  if(mod&&(k==='z'||k==='y')){const t=e.target,typing=t.id==='noteText'||(t.matches('input[type=text],input[type=number]')&&t.value!==t.dataset.orig);
+    if(!typing){e.preventDefault();if(t.matches('input'))t.blur();(k==='y'||e.shiftKey)?doRedo():doUndo();return}}
+  if(e.target.matches('input,textarea'))return;if(!I)return;const beat=Math.round(I.fps*60/I.bpm);
   if(e.altKey&&sel&&e.key.startsWith('Arrow')){e.preventDefault();const n=selNode();if(!n)return;const st=e.shiftKey?10:1,b=base(n);
     const u=e.key==='ArrowLeft'?{dx:b.dx-st}:e.key==='ArrowRight'?{dx:b.dx+st}:e.key==='ArrowUp'?{dy:b.dy-st}:{dy:b.dy+st};n.edits=Object.assign({},n.edits,u);edit(n.id,u);return}
   if(e.code==='Space'){e.preventDefault();toggle()}else if(e.key==='Escape')select(null);
