@@ -39,6 +39,13 @@ def main() -> None:
     st.add_argument("-o", "--out")
     st.add_argument("--scale", type=float, default=1.0)
 
+    sd = sub.add_parser("studio", help="タイムライン・パラメータ・メモ・レビューつきのブラウザのスタジオ")
+    sd.add_argument("project")
+    sd.add_argument("--port", type=int, default=8766)
+    sd.add_argument("--scale", type=float, default=0.5)
+    sd.add_argument("--blur", action="store_true")
+    sd.add_argument("--no-open", action="store_true")
+
     nw = sub.add_parser("new", help="制作文書 (brief / style / shotlist) つきの作品のひな形を作る")
     nw.add_argument("name")
     nw.add_argument("--aspect", default="16:9", choices=["16:9", "9:16", "1:1"])
@@ -92,6 +99,10 @@ def main() -> None:
             except json.JSONDecodeError:
                 params[k] = v
         os.environ["MOTION_PARAMS"] = json.dumps(params)
+    if args.cmd == "studio":
+        from .studio import serve as studio
+        studio(args.project, args.port, args.scale, args.blur, None, not args.no_open)
+        return
     if args.cmd == "new":
         from .scaffold import create
         d = create(args.name, aspect=args.aspect, dur=args.dur)

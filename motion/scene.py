@@ -179,6 +179,8 @@ class Composition:
     # 等倍の画素で確かめる作品ごとの検査 (checks.Check) と、自動検査の例外 (checks.Waiver)
     checks: list = field(default_factory=list)
     waivers: list = field(default_factory=list)
+    # スタジオから調整できるパラメータ (tune.Tune)
+    tune: Any = None
 
     def __post_init__(self):
         self.background = to_color(self.background)

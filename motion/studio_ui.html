@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>motion studio</title>
+<style>
+:root{
+  --bg:#0d0e11;--panel:#15161b;--panel2:#1c1d23;--line:#2a2c34;--fg:#e6e6ea;--dim:#8b8d97;--faint:#5a5c66;
+  --acc:#ff6a33;--blue:#5b8cff;--cue:#ff9a5c;--note:#facc15;--err:#ff5470;--ok:#4ade80;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 -apple-system,"Hiragino Sans",sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+button{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:5px 11px;cursor:pointer}
+button:hover{border-color:var(--dim)}button:disabled{opacity:.45;cursor:default}
+button.pri{background:var(--acc);border-color:var(--acc);color:#140904;font-weight:600}
+#app{display:grid;grid-template-columns:minmax(0,1fr) 340px;grid-template-rows:44px minmax(0,1fr) auto;height:100%}
+header{grid-column:1/-1;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--line)}
+header .name{font-weight:700}header .meta{color:var(--dim);font-family:var(--mono);font-size:12px}
+header .sp{flex:1}
+#job{font-family:var(--mono);font-size:12px;color:var(--dim);max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#job.run{color:var(--note)}#job.bad{color:var(--err)}#job.good{color:var(--ok)}
+#stage{position:relative;display:flex;align-items:center;justify-content:center;background:#050506;min-height:0;overflow:hidden}
+#stage img{width:100%;height:100%;object-fit:contain;display:block}
+#err{position:absolute;inset:0;background:#1a0709ee;color:#ff9aa8;white-space:pre-wrap;font-family:var(--mono);font-size:12px;padding:18px;overflow:auto;display:none}
+#cache{position:absolute;left:0;bottom:0;height:2px;background:var(--acc);width:0}
+aside{grid-row:2/4;grid-column:2;border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0;background:var(--panel)}
+.tabs{display:flex;border-bottom:1px solid var(--line)}
+.tabs button{flex:1;border:0;border-radius:0;background:none;padding:10px 0;color:var(--dim)}
+.tabs button.on{color:var(--fg);box-shadow:inset 0 -2px 0 var(--acc)}
+.tabs .badge{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;background:var(--line);font-size:11px;margin-left:4px}
+.tabs .badge.err{background:var(--err);color:#fff}
+.pane{flex:1;overflow:auto;padding:12px 14px;display:none}.pane.on{display:block}
+.param{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;padding:9px 0;border-bottom:1px solid var(--line)}
+.param label{font-family:var(--mono);font-size:12px}.param .reset{font-size:11px;padding:1px 7px;color:var(--dim)}
+.param .ctl{grid-column:1/-1;display:flex;gap:8px;align-items:center}
+.param input[type=range]{flex:1;accent-color:var(--acc)}
+.param input[type=number]{width:74px;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:3px 5px;font-family:var(--mono);font-size:12px}
+.param input[type=text]{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:5px 7px}
+.param input[type=color]{width:44px;height:26px;border:1px solid var(--line);border-radius:4px;background:none;padding:0}
+.param.changed label::after{content:" ●";color:var(--acc)}
+.empty{color:var(--dim);padding:8px 0}
+.addnote{display:flex;flex-direction:column;gap:6px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.addnote textarea{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px;min-height:58px;resize:vertical}
+.addnote .row{display:flex;gap:8px;align-items:center;color:var(--dim);font-family:var(--mono);font-size:12px}
+.item{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;padding:9px 0;border-bottom:1px solid var(--line);align-items:start}
+.item .t{font-family:var(--mono);font-size:12px;color:var(--note);cursor:pointer}
+.item.err .t{color:var(--err)}.item.done .txt{text-decoration:line-through;color:var(--faint)}
+.item .txt{word-break:break-word}.item .rule{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.item .x{border:0;background:none;color:var(--faint);padding:0 4px}
+#bottom{grid-column:1;border-top:1px solid var(--line);background:var(--panel)}
+#transport{display:flex;align-items:center;gap:8px;padding:7px 12px}
+#tc{font-family:var(--mono);font-size:12px;color:var(--dim);min-width:250px}
+#shotname{color:var(--fg);font-weight:600}
+#tl{display:block;width:100%;height:150px;cursor:crosshair}
+.help{color:var(--faint);font-size:11px;padding:0 12px 8px}
+kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-radius:3px;padding:0 4px;color:var(--dim)}
+</style></head>
+<body><div id="app">
+<header>
+  <span class="name" id="name">motion studio</span><span class="meta" id="meta"></span>
+  <span class="sp"></span><span id="job"></span>
+  <button id="bReview">レビュー</button><button id="bDraft">下書き</button><button id="bRender" class="pri">書き出し</button>
+  <button id="bOpen" disabled>開く</button>
+</header>
+<div id="stage"><img id="img" alt=""><div id="err"></div><div id="cache"></div></div>
+<aside>
+  <div class="tabs"><button data-p="params" class="on">パラメータ</button><button data-p="notes">メモ<span class="badge" id="nNotes">0</span></button><button data-p="finds">エラー<span class="badge" id="nErr">0</span></button></div>
+  <div class="pane on" id="params"></div>
+  <div class="pane" id="notes">
+    <div class="addnote"><div class="row"><span id="noteAt">0.00s</span> にメモ <span style="flex:1"></span><kbd>N</kbd></div>
+      <textarea id="noteText" placeholder="ここが悪い、こうしたい (Claude が notes.md を読んでこの時刻だけ直す)"></textarea>
+      <div class="row"><span style="flex:1"></span><button id="noteAdd" class="pri">追加</button></div></div>
+    <div id="noteList"></div>
+  </div>
+  <div class="pane" id="finds"><div id="findList"></div></div>
+</aside>
+<div id="bottom">
+  <div id="transport"><button id="bPlay">▶</button><button id="bPrev">−1f</button><button id="bNext">+1f</button>
+    <span id="tc"></span><span id="shotname"></span><span style="flex:1"></span>
+    <label style="color:var(--dim);font-size:12px"><input type="checkbox" id="loopChk" checked> ループ再生</label></div>
+  <canvas id="tl"></canvas>
+  <div class="help"><kbd>Space</kbd> 再生 · <kbd>←</kbd><kbd>→</kbd> 1 フレーム · <kbd>Shift</kbd>+矢印 1 拍 · <kbd>[</kbd><kbd>]</kbd> 前後のショット · <kbd>N</kbd> この時刻にメモ · タイムラインをクリック/ドラッグでシーク</div>
+</div>
+</div>
+<audio id="aud" preload="auto"></audio>
+<script>
+const $=id=>document.getElementById(id);
+let I=null,ver=-1,cur=0,playing=false,inflight=false,pending=null,t0=0,f0=0,dragging=false;
+const img=$('img'),aud=$('aud'),cv=$('tl'),ctx=cv.getContext('2d');
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmt=t=>t.toFixed(2)+'s';
+const tNow=()=>cur/(I?I.fps:60);
+function post(u,b){return fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})}).then(r=>r.json())}
+
+// ---------- 再生
+function show(f){if(!I)return;f=Math.max(0,Math.min(I.nframes-1,Math.round(f)));cur=f;
+  $('tc').textContent=`${fmt(f/I.fps)}  #${f}  ${Math.floor(f/I.fps/(240/I.bpm))+1}小節 ${Math.floor(f/I.fps/(60/I.bpm))%4+1}拍`;
+  const s=(I.shots||[]).find(s=>s.start<=f/I.fps&&f/I.fps<s.end);$('shotname').textContent=s?s.name:'';
+  $('noteAt').textContent=fmt(f/I.fps);draw();
+  if(inflight){pending=f;return}inflight=true;const im=new Image();
+  im.onload=()=>{img.src=im.src;inflight=false;if(pending!==null){const p=pending;pending=null;show(p)}};
+  im.onerror=()=>{inflight=false;setTimeout(()=>show(cur),200)};im.src=`/frame/${f}.jpg?v=${ver}`}
+function tick(){if(!playing)return;let t=aud.src&&!aud.paused?aud.currentTime:f0/I.fps+(performance.now()-t0)/1000;
+  let f=Math.round(t*I.fps);if(f>=I.nframes){if(!$('loopChk').checked){toggle();return}f=0;t0=performance.now();f0=0;if(aud.src)aud.currentTime=0}
+  if(f!==cur)show(f);requestAnimationFrame(tick)}
+function toggle(){playing=!playing;$('bPlay').textContent=playing?'❚❚':'▶';
+  if(playing){t0=performance.now();f0=cur;if(aud.src){aud.currentTime=cur/I.fps;aud.loop=$('loopChk').checked;aud.play().catch(()=>{})}requestAnimationFrame(tick)}else aud.pause()}
+function seekTo(f){show(f);if(playing){f0=cur;t0=performance.now();if(aud.src)aud.currentTime=cur/I.fps}}
+
+// ---------- タイムライン
+const ROW={ruler:[0,20],shots:[22,30],wave:[56,44],marks:[104,40]};
+function x2t(x){return x/cv.clientWidth*I.duration}function t2x(t){return t/I.duration*cv.clientWidth}
+function draw(){if(!I)return;const dpr=devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;
+  if(cv.width!==W*dpr){cv.width=W*dpr;cv.height=H*dpr}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
+  const beat=60/I.bpm,bar=beat*4;
+  // 目盛り
+  ctx.font='10px '+css('--mono');ctx.textBaseline='top';
+  for(let t=0;t<=I.duration+1e-6;t+=beat){const x=Math.round(t2x(t))+.5,isBar=Math.abs(t/bar-Math.round(t/bar))<1e-6;
+    ctx.strokeStyle=isBar?'#3a3c46':'#24262d';ctx.beginPath();ctx.moveTo(x,isBar?2:12);ctx.lineTo(x,H);ctx.stroke();
+    if(isBar){ctx.fillStyle=css('--faint');ctx.fillText(String(Math.round(t/bar)+1),x+3,2)}}
+  // ショット
+  (I.shots||[]).forEach((s,i)=>{const x=t2x(s.start),w=t2x(s.end)-x,[y,h]=ROW.shots;
+    ctx.fillStyle=i%2?'#262a3a':'#2c3247';ctx.fillRect(x+1,y,w-2,h);ctx.fillStyle=css('--fg');ctx.font='600 11px sans-serif';
+    ctx.textBaseline='middle';ctx.save();ctx.beginPath();ctx.rect(x+1,y,w-2,h);ctx.clip();ctx.fillText(s.name,x+7,y+h/2);ctx.restore()});
+  // 波形
+  const P=I.peaks||[],[wy,wh]=ROW.wave;ctx.fillStyle='#3b4a6e';
+  for(let i=0;i<P.length;i++){const x=i/P.length*W,h=P[i]*wh;ctx.fillRect(x,wy+wh/2-h/2,Math.max(W/P.length,1),h)}
+  // キュー・カット
+  (I.cues||[]).forEach(t=>{ctx.fillStyle=css('--cue');ctx.fillRect(t2x(t)-1,ROW.wave[0],2,ROW.wave[1])});
+  // メモとエラー
+  const [my]=ROW.marks;
+  (I.findings||[]).forEach(f=>{const x=t2x(f.t);ctx.fillStyle=css('--err');ctx.beginPath();ctx.moveTo(x,my+4);ctx.lineTo(x+6,my+14);ctx.lineTo(x-6,my+14);ctx.fill()});
+  (I.notes||[]).forEach(n=>{const x=t2x(n.t);ctx.fillStyle=n.done?css('--faint'):css('--note');ctx.beginPath();ctx.arc(x,my+28,5,0,7);ctx.fill()});
+  // 再生位置
+  const px=t2x(cur/I.fps);ctx.fillStyle=css('--acc');ctx.fillRect(px-1,0,2,H);ctx.beginPath();ctx.moveTo(px-6,0);ctx.lineTo(px+6,0);ctx.lineTo(px,8);ctx.fill()}
+function tlSeek(e){const r=cv.getBoundingClientRect();let t=x2t(e.clientX-r.left);if(e.shiftKey){const b=60/I.bpm;t=Math.round(t/b)*b}seekTo(t*I.fps)}
+cv.onmousedown=e=>{dragging=true;tlSeek(e)};addEventListener('mousemove',e=>{if(dragging)tlSeek(e)});addEventListener('mouseup',()=>dragging=false);
+addEventListener('resize',draw);
+
+// ---------- パラメータ
+let tuneTimer=null,tunePending={};
+function sendTune(k,v,now){tunePending[k]=v;clearTimeout(tuneTimer);tuneTimer=setTimeout(()=>{const b=tunePending;tunePending={};post('/tune',b)},now?0:350)}
+function buildParams(){const el=$('params');el.innerHTML='';const T=I.tune||[];
+  if(!T.length){el.innerHTML='<div class="empty">この作品は tune() でパラメータを宣言していない。<br>project.py で <code>P = tune(HERE, T_RUN=(5.0, 3, 8), ACCENT="#FACC15")</code> のように書くとここで調整できる。</div>';return}
+  T.forEach(p=>{const d=document.createElement('div');d.className='param'+(JSON.stringify(p.value)!==JSON.stringify(p.default)?' changed':'');
+    d.innerHTML=`<label>${p.key}</label><button class="reset" title="既定値 ${p.default}">戻す</button><div class="ctl"></div>`;const c=d.querySelector('.ctl');
+    if(p.type==='number'){const r=document.createElement('input');r.type='range';r.min=p.min??0;r.max=p.max??Math.max(1,p.default*2);r.step=p.step;r.value=p.value;
+      const n=document.createElement('input');n.type='number';n.step=p.step;n.value=p.value;
+      r.oninput=()=>{n.value=r.value;sendTune(p.key,+r.value)};n.onchange=()=>{r.value=n.value;sendTune(p.key,+n.value,true)};c.append(r,n)}
+    else if(p.type==='color'){const i=document.createElement('input');i.type='color';i.value=p.value;const s=document.createElement('span');s.className='rule';s.textContent=p.value;
+      i.oninput=()=>{s.textContent=i.value;sendTune(p.key,i.value)};c.append(i,s)}
+    else if(p.type==='bool'){const i=document.createElement('input');i.type='checkbox';i.checked=p.value;i.onchange=()=>sendTune(p.key,i.checked,true);c.append(i)}
+    else{const i=document.createElement('input');i.type='text';i.value=p.value;i.onchange=()=>sendTune(p.key,i.value,true);c.append(i)}
+    d.querySelector('.reset').onclick=()=>post('/tune',{[p.key]:null});el.append(d)})}
+
+// ---------- メモとエラー
+function buildNotes(){const el=$('noteList');el.innerHTML='';const N=I.notes||[];$('nNotes').textContent=N.filter(n=>!n.done).length;
+  if(!N.length){el.innerHTML='<div class="empty">メモはまだ無い。気になるコマで N を押して書く。</div>'}
+  N.forEach(n=>{const d=document.createElement('div');d.className='item'+(n.done?' done':'');
+    d.innerHTML=`<span class="t">${fmt(n.t)}</span><span class="txt"></span><span><input type="checkbox" title="済み" ${n.done?'checked':''}><button class="x" title="削除">✕</button></span>`;
+    d.querySelector('.txt').textContent=n.text;d.querySelector('.t').onclick=()=>seekTo(n.t*I.fps);
+    d.querySelector('input').onchange=e=>post('/notes/update',{id:n.id,done:e.target.checked}).then(poll1);
+    d.querySelector('.x').onclick=()=>post('/notes/update',{id:n.id,delete:true}).then(poll1);el.append(d)})}
+function buildFinds(){const el=$('findList');el.innerHTML='';const F=I.findings||[];const b=$('nErr');b.textContent=F.length;b.className='badge'+(F.length?' err':'');
+  if(!F.length){el.innerHTML='<div class="empty">最新のレビューでエラーは 0 件。レビューを実行すると、等倍の検査の結果がここに出る。</div>'}
+  F.forEach(f=>{const d=document.createElement('div');d.className='item err';
+    d.innerHTML=`<span class="t">${fmt(f.t)}</span><span><div class="rule"></div><div class="txt"></div></span><span></span>`;
+    d.querySelector('.rule').textContent=f.rule;d.querySelector('.txt').textContent=f.detail;d.querySelector('.t').onclick=()=>seekTo(f.t*I.fps);el.append(d)})}
+function addNote(){const t=$('noteText').value.trim();if(!t)return;post('/notes/add',{t:+tNow().toFixed(2),text:t}).then(()=>{$('noteText').value='';poll1()})}
+$('noteAdd').onclick=addNote;$('noteText').onkeydown=e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();addNote()}if(e.key==='Escape')e.target.blur()};
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button,.pane').forEach(x=>x.classList.remove('on'));b.classList.add('on');$(b.dataset.p).classList.add('on')});
+const tab=p=>document.querySelector(`.tabs button[data-p=${p}]`).click();
+
+// ---------- ジョブ
+$('bReview').onclick=()=>post('/review').then(poll1);$('bDraft').onclick=()=>post('/render',{draft:true}).then(poll1);
+$('bRender').onclick=()=>post('/render',{draft:false}).then(poll1);$('bOpen').onclick=()=>post('/open');
+let lastJob='';
+function showJob(j){const e=$('job');['bReview','bDraft','bRender'].forEach(id=>$(id).disabled=j.running);
+  if(!j.name){e.textContent='';return}
+  e.className=j.running?'run':(j.code===0?'good':'bad');e.textContent=j.running?`${j.name}: ${j.last}`:`${j.name}: ${j.code===0?'完了':'失敗'}  ${j.last}`;
+  const key=j.name+j.running+j.code;if(lastJob&&key!==lastJob&&!j.running&&j.name==='レビュー')tab('finds');lastJob=key;$('bOpen').disabled=!I.output}
+
+// ---------- 状態の取得
+let sig='';
+async function poll1(){try{const j=await (await fetch('/info')).json();
+  const e=$('err');e.style.display=j.error?'block':'none';e.textContent=j.error||'';
+  $('cache').style.width=(100*j.cached/j.nframes)+'%';
+  if(j.version!==ver){const first=!I;I=j;ver=j.version;$('name').textContent=j.name;
+    $('meta').textContent=`${j.width}×${j.height} · ${j.fps}fps · ${j.duration?.toFixed?.(1)}s · ${j.bpm} BPM${j.loop?' · ループ':''}`;
+    if(j.audio)aud.src='/audio.wav?v='+ver;buildParams();show(first?0:cur)}else I=Object.assign(I,j);
+  const s=JSON.stringify([j.notes,j.findings]);if(s!==sig){sig=s;buildNotes();buildFinds();draw()}
+  if(j.job)showJob(j.job)}catch(e){}}
+async function poll(){await poll1();setTimeout(poll,500)}
+
+document.onkeydown=e=>{if(e.target.matches('input,textarea'))return;if(!I)return;const beat=Math.round(I.fps*60/I.bpm);
+  if(e.code==='Space'){e.preventDefault();toggle()}
+  else if(e.code==='ArrowLeft')seekTo(cur-(e.shiftKey?beat:1));else if(e.code==='ArrowRight')seekTo(cur+(e.shiftKey?beat:1));
+  else if(e.key==='['||e.key===']'){const t=tNow(),S=I.shots||[];const s=e.key===']'?S.find(s=>s.start>t+1e-3):[...S].reverse().find(s=>s.start<t-1e-3);if(s)seekTo(s.start*I.fps)}
+  else if(e.key==='n'||e.key==='N'){e.preventDefault();if(playing)toggle();tab('notes');$('noteText').focus()}};
+$('bPlay').onclick=toggle;$('bPrev').onclick=()=>seekTo(cur-1);$('bNext').onclick=()=>seekTo(cur+1);
+poll();
+</script></body></html>
