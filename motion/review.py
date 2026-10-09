@@ -136,8 +136,15 @@ def measure(project, comp, shots: ShotList, scale: float = 0.08, wav: str | None
             sync.append((kind, t, (off - round(off)) * grid * 1000, strength >= 1.8))
     loop_diff = None
     if comp.loop:
-        a = _render(project, [0, comp.nframes - 1], 0.25)
-        loop_diff = float(np.abs(a[0].astype(int) - a[comp.nframes - 1].astype(int)).mean())
+        # 0 秒と「尺ちょうど」を比べる (最後のコマは 1 フレーム手前なので比べる相手ではない)。
+        # グレインは毎フレーム違うので、ポスト処理を切って比べる
+        from .render import FrameRenderer
+        # 尺ちょうどは区間 [start, end) の外なので、検査の間だけ尺を 1 フレーム延ばして描けるようにする
+        comp.duration += 1 / comp.fps
+        r = FrameRenderer(comp, 0.25, motion_blur=False, post=False)
+        a, b = r.frame(0), r.frame(comp.nframes - 1)
+        comp.duration -= 1 / comp.fps
+        loop_diff = float(np.abs(a.astype(int) - b.astype(int)).mean())
     return Metrics(rest_ratio, contrast, pops, pace, changes, sync, edge, loop_diff)
 
 
