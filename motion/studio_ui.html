@@ -160,6 +160,7 @@ function tick(){if(!playing)return;const clock=f0/I.fps+(performance.now()-t0)/1
   let f=Math.round(t*I.fps);if(f>=I.nframes){if(!$('loopChk').checked){toggle();return}f=0;t0=performance.now();f0=0;if(aud.src)aud.currentTime=0}
   if(f!==cur)show(f);requestAnimationFrame(tick)}
 function toggle(){playing=!playing;$('bPlay').textContent=playing?'❚❚':'▶';
+  if(playing&&!$('loopChk').checked&&cur>=I.nframes-1)show(0);
   if(playing){NODES=[];drawOV();t0=performance.now();f0=cur;if(aud.src){aud.currentTime=cur/I.fps;aud.loop=$('loopChk').checked;aud.play().catch(()=>{})}requestAnimationFrame(tick)}
   else{aud.pause();loadNodes()}}
 function seekTo(f){show(f);if(playing){f0=cur;t0=performance.now();if(aud.src)aud.currentTime=cur/I.fps}}
@@ -432,16 +433,19 @@ document.addEventListener('focusin',e=>{if(e.target.matches('input'))e.target.da
 document.onkeydown=e=>{const mod=e.metaKey||e.ctrlKey,k=e.key.toLowerCase();
   if(mod&&(k==='z'||k==='y')){const t=e.target,typing=t.id==='noteText'||(t.matches('input[type=text],input[type=number]')&&t.value!==t.dataset.orig);
     if(!typing){e.preventDefault();if(t.matches('input'))t.blur();(k==='y'||e.shiftKey)?doRedo():doUndo();return}}
-  if(e.target.matches('input,textarea'))return;if(!I)return;const beat=Math.round(I.fps*60/I.bpm);
+  // チェックボックスやボタンにフォーカスが残っていても、Space や矢印はブラウザの既定動作に渡さない
+  if(e.target.matches('textarea,input:not([type=checkbox])'))return;if(!I)return;const beat=Math.round(I.fps*60/I.bpm);
   if(e.altKey&&sel&&e.key.startsWith('Arrow')){e.preventDefault();const n=selNode();if(!n)return;const st=e.shiftKey?10:1,b=base(n);
     const u=e.key==='ArrowLeft'?{dx:b.dx-st}:e.key==='ArrowRight'?{dx:b.dx+st}:e.key==='ArrowUp'?{dy:b.dy-st}:{dy:b.dy+st};n.edits=Object.assign({},n.edits,u);edit(n.id,u);return}
-  if(e.code==='Space'){e.preventDefault();toggle()}else if(e.key==='Escape'){select(sel?parentOf(sel):null)}
+  if(e.code==='Space'){e.preventDefault();e.target.blur?.();toggle()}else if(e.key==='Escape'){select(sel?parentOf(sel):null)}
   else if(e.key==='Enter'&&sel){const k2=childrenOf(sel)[0];if(k2)select(k2)}
   else if(e.code==='ArrowLeft')seekTo(cur-(e.shiftKey?beat:1));else if(e.code==='ArrowRight')seekTo(cur+(e.shiftKey?beat:1));
   else if(e.key==='['||e.key===']'){const t=tNow(),S=I.shots||[];const s=e.key===']'?S.find(s=>s.start>t+1e-3):[...S].reverse().find(s=>s.start<t-1e-3);if(s)seekTo(s.start*I.fps)}
   else if(e.key==='n'||e.key==='N'){e.preventDefault();if(playing)toggle();tab('notes');$('noteText').focus()}};
 $('bPlay').onclick=toggle;$('bPrev').onclick=()=>seekTo(cur-1);$('bNext').onclick=()=>seekTo(cur+1);
 addEventListener('resize',()=>{drawOV();drawTL()});
+$('loopChk').onchange=e=>{aud.loop=e.target.checked;e.target.blur()};
+document.querySelectorAll('#transport button').forEach(b=>b.onmousedown=e=>e.preventDefault());
 new ResizeObserver(()=>{drawOV();drawTL()}).observe($('stage'));
 poll();
 </script></body></html>
