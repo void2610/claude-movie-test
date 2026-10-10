@@ -86,6 +86,10 @@ def main() -> None:
     au.add_argument("--notes", default="F3,G#3,C4")
     au.add_argument("-o", "--out", default="build/audition.wav")
 
+    vr = sub.add_parser("variants", help="variants.json の全案の下書きを書き出す (スタジオの「案」で見比べる)")
+    vr.add_argument("project")
+    vr.add_argument("--scale", type=float, default=0.5)
+
     fx = sub.add_parser("sfx", help="録音の効果音ライブラリ (kit / browse / search / add / sheet)")
     fx.add_argument("action", choices=["kit", "browse", "search", "add", "sheet"])
     fx.add_argument("args", nargs="*", help="browse: 種類 / search: 検索語 / add・sheet: ファイル")
@@ -113,6 +117,11 @@ def main() -> None:
             except json.JSONDecodeError:
                 params[k] = v
         os.environ["MOTION_PARAMS"] = json.dumps(params)
+    if args.cmd == "variants":
+        from .variants import render_all
+        comp = load_project(args.project)
+        render_all(args.project, comp.build_dir, args.scale)
+        return
     if args.cmd == "sfx":
         from . import sfxlib
         if args.action == "kit":

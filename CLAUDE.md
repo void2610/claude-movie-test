@@ -15,6 +15,7 @@
 4. `review` のシートと review.md で最も大きな欠点を 3 つ、時刻・根拠・局所的な修正つきで書き、その区間だけ直して `review` し直す。`review` は等倍の画素で検査し (縁での見切れ・1 フレームの閃き・ループ・作品ごとの `comp.checks`)、エラーが 1 件でも残ると失敗で終わる。エラーが 0 件になるまで完了と報告しない
 6. 調整はスタジオ (`motion studio`) で行う。人間は映像の要素を直接つかんで動かす・拡大縮小・回転し、文言・色・出のタイミングを変える。そのため作品のコードでは、画面に描く要素を必ず `node(c, ctx, "名前", origin=..., span=...)` (2.5D のカードは `Card(id=...)`) で名前を付けて囲み、文言・色など人間が変えそうな値は `n.prop("text", 既定値)` で読み、アニメーションの時刻は `ctx.t` ではなく `n.t` を使う。作品全体に効く値 (BPM 由来の時刻など) だけ `tune()` にする
    - 人間の変更は作品の `edits.json` に要素の名前ごとの差分 (dx, dy, dz, scale, rot, opacity, dt, hidden, props) で残り、書き出しにもそのまま反映される。作業の前に読み、人間が何をどう変えたかを把握する。要素の名前は変えない (変えると差分が外れる)。コードを大きく作り直すときは、差分をコードの既定値に取り込んでから edits.json の該当項目を消す
+   - 1 つのショットで迷ったら、案を `variants.json` に複数書いて (`tune` の値か `build()` の引数の違い) `motion variants` で書き出し、ユーザーにスタジオの「案」で選んでもらう。選ばれた案は `chosen` に入るので、その値を作品に取り込む
    - メモは作品の `notes.md` に「- [ ] 08.30s [要素名] 本文」で残る。作業前に読み、未完了の項目をその時刻・その要素だけ直して `[x]` にする
 7. ユーザーから見た目の指摘を受けたら、直す前にその症状を `comp.checks` に `Check` として書き、今の版で失敗することを確かめてから直す (同じミスを別の作品で繰り返さないため)。意図した例外だけ理由つきの `Waiver` にする
 5. 縦長・正方形は切り抜きではなく、同じ素材とショットで別の構成として組む (`--set aspect=...`)
@@ -27,6 +28,7 @@ uv run python -m motion render projects/demo --draft    # 半解像度・ブラ�
 uv run python -m motion render projects/demo --start 2 --end 4
 uv run python -m motion new myfilm --aspect 1:1         # 制作文書つきのひな形 (projects/myfilm)
 uv run python -m motion review projects/demo            # 批評用シート + review.md (projects/demo/reviews/)
+uv run python -m motion variants projects/demo          # variants.json の全案の下書き → スタジオの「案」で並べて同時に再生して選ぶ
 uv run python -m motion sheet projects/demo             # コンタクトシート (build/demo/sheet.png)
 uv run python -m motion still projects/demo 3.5         # 1 フレームの PNG
 uv run python -m motion audio projects/demo             # 音だけ

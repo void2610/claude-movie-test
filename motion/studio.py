@@ -260,6 +260,48 @@ class Studio(Previewer):
         return self.job.start("下書き" if draft else "書き出し",
                               ["render", self.project] + (["--draft"] if draft else []), on_done=done)
 
+    def variants(self) -> dict:
+        from . import variants as vmod
+        data = vmod.load(self.dir) or {}
+        build = Path(self.comp.build_dir) if self.comp else self.dir
+        clips = []
+        for i, v in enumerate(data.get("variants", [])):
+            c = vmod.clip(build, v["name"], i)
+            clips.append({**v, "i": i, "mtime": c.stat().st_mtime if c.exists() else None})
+        return {"exists": bool(data), "start": data.get("start"), "end": data.get("end"),
+                "chosen": data.get("chosen"), "variants": clips, "file": str(vmod.path_of(self.dir))}
+
+    def variant_clip(self, i: int) -> bytes | None:
+        from . import variants as vmod
+        data = vmod.load(self.dir) or {}
+        vs = data.get("variants", [])
+        if not (0 <= i < len(vs)) or self.comp is None:
+            return None
+        c = vmod.clip(Path(self.comp.build_dir), vs[i]["name"], i)
+        return c.read_bytes() if c.exists() else None
+
+    def add_variant(self, name: str, note: str, start: float, end: float) -> dict:
+        """今の全体のパラメータ (tune.json) を 1 つの案として足す。区間が未定なら渡された区間にする。"""
+        from . import variants as vmod
+        data = vmod.load(self.dir) or {"start": start, "end": end, "variants": [], "chosen": None}
+        tune = {}
+        if self.comp is not None and self.comp.tune is not None and self.comp.tune.path.exists():
+            tune = json.loads(self.comp.tune.path.read_text(encoding="utf-8"))
+        data["variants"].append({"name": name, "note": note, "tune": tune})
+        vmod.save(self.dir, data)
+        return self.variants()
+
+    def choose_variant(self, name: str | None) -> dict:
+        from . import variants as vmod
+        data = vmod.load(self.dir)
+        if data is not None:
+            data["chosen"] = name
+            vmod.save(self.dir, data)
+        return self.variants()
+
+    def run_variants(self) -> bool:
+        return self.job.start("案の書き出し", ["variants", self.project])
+
     def info(self) -> dict:
         base = super().info()
         c = self.comp
@@ -307,6 +349,11 @@ def serve(project: str, port: int = 8766, scale: float = 0.5, motion_blur: bool 
                 return self._send(200, jpg, "image/jpeg") if jpg else self._send(503, b"", "text/plain")
             if u.path.startswith("/nodes/"):
                 return self._json(st.nodes_at(int(u.path.split("/")[-1])))
+            if u.path == "/variants":
+                return self._json(st.variants())
+            if u.path.startswith("/variants/clip/"):
+                b = st.variant_clip(int(u.path.split("/")[-1].split(".")[0]))
+                return self._send(200, b, "video/mp4") if b else self._send(404, b"", "text/plain")
             if u.path == "/audio.wav" and st.audio_path:
                 return self._send(200, Path(st.audio_path).read_bytes(), "audio/wav")
             self._send(404, b"", "text/plain")
@@ -342,6 +389,13 @@ def serve(project: str, port: int = 8766, scale: float = 0.5, motion_blur: bool 
                 return self._json({"started": st.run_review()})
             if u.path == "/render":
                 return self._json({"started": st.run_render(bool(body.get("draft")))})
+            if u.path == "/variants/render":
+                return self._json({"started": st.run_variants()})
+            if u.path == "/variants/choose":
+                return self._json(st.choose_variant(body.get("name")))
+            if u.path == "/variants/add":
+                return self._json(st.add_variant(str(body["name"]), str(body.get("note", "")),
+                                                 float(body["start"]), float(body["end"])))
             if u.path == "/open" and st.output:
                 subprocess.run(["open", st.output])
                 return self._json({"ok": True})

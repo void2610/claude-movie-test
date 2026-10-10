@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,8 @@ def tune(project_dir: str | Path, **defaults: Any) -> Tune:
             saved = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             saved = {}
+    # 案の書き出し (motion variants) では、保存した値を変えずにその案の値で上書きする
+    saved.update(json.loads(os.environ.get("MOTION_TUNE", "{}")))
     spec = {k: _kind(v) for k, v in defaults.items()}
     values = {}
     for k, s in spec.items():
