@@ -226,7 +226,8 @@ def main() -> None:
         prepare(comp)
         if not comp.audio:
             raise SystemExit("this project has no audio")
-        print(f"-> {comp.audio(comp)}")
+        from .render import make_audio
+        print(f"-> {make_audio(comp)}")
 
 
 if __name__ == "__main__":

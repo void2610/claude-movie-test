@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 import cv2
 import numpy as np
 
-from .render import FrameRenderer, _pool, _render_one, load_project, prepare
+from .render import FrameRenderer, _pool, _render_one, load_project, make_audio, prepare
 
 PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>motion preview</title>
 <style>
@@ -98,7 +98,7 @@ class Previewer:
             comp = load_project(self.project)
             prepare(comp)
             renderer = FrameRenderer(comp, self.scale, self.mb)
-            audio_path = self.audio_path if skip_audio else (comp.audio(comp) if comp.audio else None)
+            audio_path = self.audio_path if skip_audio else make_audio(comp)
         except Exception:
             self.error = traceback.format_exc()
             print(self.error, file=sys.stderr)

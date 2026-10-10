@@ -58,6 +58,47 @@ def prepare(comp: Composition) -> None:
         s.ensure_setup(comp)
 
 
+def _audio_key(comp: Composition) -> str:
+    """音を左右する入力の指紋: 作品のコードと設定、エンジンのコード、パラメータ、効果音ライブラリ。"""
+    import hashlib
+    h = hashlib.sha1()
+    pdir = Path(comp.project_dir) if getattr(comp, "project_dir", None) else None
+    files = []
+    if pdir:
+        # 要素の差分・案・メモは音に効かないので除く (スタジオで要素を動かすたびに作り直さない)
+        files += [f for f in sorted(pdir.rglob("*")) if f.is_file() and f.suffix in (".py", ".json", ".md")
+                  and f.name not in ("edits.json", "variants.json", "notes.md") and "reviews" not in f.parts]
+    files += sorted(Path(__file__).parent.glob("*.py"))
+    for f in files:
+        h.update(str(f).encode())
+        h.update(f.read_bytes())
+    h.update(os.environ.get("MOTION_PARAMS", "").encode() + os.environ.get("MOTION_TUNE", "").encode())
+    from .sfxlib import LIB
+    cat = LIB / "catalog.json"
+    h.update(str(cat.stat().st_mtime if cat.exists() else 0).encode())
+    return h.hexdigest()
+
+
+def make_audio(comp: Composition) -> str | None:
+    """comp.audio を呼んで wav のパスを返す。入力が前回と同じなら作り直さずに前回の wav を使う。"""
+    if not comp.audio:
+        return None
+    key = _audio_key(comp)
+    idx_path = Path(comp.build_dir) / "audio-cache.json"
+    try:
+        idx = json.loads(idx_path.read_text(encoding="utf-8")) if idx_path.exists() else {}
+    except json.JSONDecodeError:
+        idx = {}
+    hit = idx.get(key)
+    if hit and Path(hit["path"]).exists() and Path(hit["path"]).stat().st_mtime == hit["mtime"]:
+        return hit["path"]
+    path = comp.audio(comp)
+    idx[key] = {"path": str(path), "mtime": Path(path).stat().st_mtime}
+    idx_path.parent.mkdir(parents=True, exist_ok=True)
+    idx_path.write_text(json.dumps(dict(list(idx.items())[-16:]), indent=1), encoding="utf-8")
+    return path
+
+
 class FrameRenderer:
     def __init__(self, comp: Composition, scale: float = 1.0, motion_blur: bool = True, post: bool = True):
         self.comp = comp
@@ -101,13 +142,13 @@ class FrameRenderer:
         n = comp.subframes(t) if self.mb else 1
         decode = colorspace.SRGB_TO_LINEAR if comp.linear else colorspace.IDENTITY
         if n == 1:
-            rgb = decode[self.draw(t, f)[..., :3]]
+            rgb = colorspace.lookup(self.draw(t, f), decode)
         else:
             acc = np.zeros((self.h, self.w, 3), np.float32)
             span = comp.shutter / comp.fps
             for i in range(n):
                 dt = ((i + 0.5) / n - 0.5) * span
-                acc += decode[self.draw(t + dt, f + dt * comp.fps)[..., :3]]
+                acc += colorspace.lookup(self.draw(t + dt, f + dt * comp.fps), decode)
             rgb = acc / n
         fxs = comp.post if self.use_post else []
         ctx = Ctx(t, f, comp, 0.0, comp.duration)
@@ -172,7 +213,7 @@ def render_video(project: str | Path, out: str | Path | None = None, *, scale: f
     wav = None
     if audio and comp.audio:
         print("audio: rendering...", flush=True)
-        wav = comp.audio(comp)
+        wav = make_audio(comp)
 
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
            "-s", f"{w}x{h}", "-r", str(comp.fps), "-i", "-"]

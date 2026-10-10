@@ -1,3 +1,4 @@
+import cv2
 import numpy as np
 
 
@@ -21,6 +22,11 @@ _ENC = _to_srgb(np.linspace(0, 1, _ENC_N)).astype(np.float32)
 def encode(lin: np.ndarray) -> np.ndarray:
     idx = np.clip(lin * (_ENC_N - 1) + 0.5, 0, _ENC_N - 1).astype(np.int32)
     return _ENC[idx]
+
+
+def lookup(rgba: np.ndarray, table: np.ndarray) -> np.ndarray:
+    """skia の RGBA uint8 を表で float32 の RGB に変える。OpenCV の表引きは numpy の添字より 10 倍速い。"""
+    return cv2.LUT(cv2.cvtColor(rgba, cv2.COLOR_RGBA2RGB), table.reshape(256, 1))
 
 
 def to_linear(srgb: np.ndarray) -> np.ndarray:

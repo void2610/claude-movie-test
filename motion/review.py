@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import skia
 
-from .render import _pool, _render_one, load_project, prepare
+from .render import _pool, _render_one, load_project, make_audio, prepare
 from .shots import Shot, ShotList
 from .text import text as draw_text
 
@@ -249,7 +249,7 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     fps = comp.fps
     f_of = lambda t: min(max(int(round(t * fps)), 0), comp.nframes - 1)  # noqa: E731
 
-    wav = comp.audio(comp) if comp.audio else None
+    wav = make_audio(comp)
     print("review: measuring...", flush=True)
     m = measure(project, comp, shots, wav=wav)
 

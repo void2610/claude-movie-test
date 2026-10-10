@@ -19,7 +19,6 @@ from typing import Iterable
 import numpy as np
 import pedalboard as pb
 from numpy.lib.stride_tricks import sliding_window_view
-import pyloudnorm
 from pedalboard.io import AudioFile
 
 SR = 48000
@@ -680,6 +679,7 @@ class Mix:
 
         src = fold(src)
         stems = {k: fold(v) for k, v in stems.items()}
+        import pyloudnorm
         meter = pyloudnorm.Meter(self.sr)
         # リミッターでラウドネスが下がる分を、計り直して詰めていく
         g = 1.0
