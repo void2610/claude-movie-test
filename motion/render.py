@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import math
@@ -19,6 +20,10 @@ from . import colorspace
 from .scene import Composition, Ctx, paint_scene
 
 cv2.setNumThreads(1)
+
+# 長く動くスタジオは起動時に読み込んだエンジンで音を作るので、ディスクの今の中身ではなく起動時の中身を指紋にする
+_ENGINE = hashlib.sha1(b"".join(str(f).encode() + f.read_bytes()
+                                 for f in sorted(Path(__file__).parent.glob("*.py")))).hexdigest()
 
 
 def project_params() -> dict:
@@ -60,7 +65,6 @@ def prepare(comp: Composition) -> None:
 
 def _audio_key(comp: Composition) -> str:
     """音を左右する入力の指紋: 作品のコードと設定、エンジンのコード、パラメータ、効果音ライブラリ。"""
-    import hashlib
     h = hashlib.sha1()
     pdir = Path(comp.project_dir) if getattr(comp, "project_dir", None) else None
     files = []
@@ -68,10 +72,10 @@ def _audio_key(comp: Composition) -> str:
         # 要素の差分・案・メモは音に効かないので除く (スタジオで要素を動かすたびに作り直さない)
         files += [f for f in sorted(pdir.rglob("*")) if f.is_file() and f.suffix in (".py", ".json", ".md")
                   and f.name not in ("edits.json", "variants.json", "notes.md") and "reviews" not in f.parts]
-    files += sorted(Path(__file__).parent.glob("*.py"))
     for f in files:
         h.update(str(f).encode())
         h.update(f.read_bytes())
+    h.update(_ENGINE.encode())
     h.update(os.environ.get("MOTION_PARAMS", "").encode() + os.environ.get("MOTION_TUNE", "").encode())
     from .sfxlib import LIB
     cat = LIB / "catalog.json"
