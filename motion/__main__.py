@@ -86,6 +86,20 @@ def main() -> None:
     au.add_argument("--notes", default="F3,G#3,C4")
     au.add_argument("-o", "--out", default="build/audition.wav")
 
+    fx = sub.add_parser("sfx", help="録音の効果音ライブラリ (kit / browse / search / add / sheet)")
+    fx.add_argument("action", choices=["kit", "browse", "search", "add", "sheet"])
+    fx.add_argument("args", nargs="*", help="browse: 種類 / search: 検索語 / add・sheet: ファイル")
+    fx.add_argument("--type", help="search / add の種類")
+    fx.add_argument("--like", default="", help="browse: 素材・重さ・雰囲気の語 (例: \"metal heavy\")")
+    fx.add_argument("-n", type=int, default=12)
+    fx.add_argument("--short", dest="length", action="store_const", const="short")
+    fx.add_argument("--long", dest="length", action="store_const", const="long")
+    fx.add_argument("--bright", dest="tone", action="store_const", const="bright")
+    fx.add_argument("--dark", dest="tone", action="store_const", const="dark")
+    fx.add_argument("--tags", default="")
+    fx.add_argument("--credit", default="", help="add: 出典とライセンス")
+    fx.add_argument("-o", "--out", default="build/sfx.png", help="波形とスペクトログラムの画像")
+
     for p_ in (r, s, st, a, pv, rv):
         p_.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
                         help="build() に渡すパラメータ (例: --set aspect=9:16)")
@@ -99,6 +113,37 @@ def main() -> None:
             except json.JSONDecodeError:
                 params[k] = v
         os.environ["MOTION_PARAMS"] = json.dumps(params)
+    if args.cmd == "sfx":
+        from . import sfxlib
+        if args.action == "kit":
+            sfxlib.kit()
+            return
+        if args.action == "browse":
+            if not args.args:
+                raise SystemExit("種類: " + ", ".join(f"{k} ({v['about']})" for k, v in sfxlib.TYPES.items()))
+            hits = sfxlib.browse(args.args[0], args.like, args.n, args.length, args.tone)
+            print(f"{args.args[0]}: {sfxlib.TYPES[args.args[0]]['about']}   * = 種類だけ指定したときの既定")
+            for e in hits:
+                print(sfxlib.describe(e))
+            print(f"-> {sfxlib.sheet(hits, args.out)}  (波形の橙の線が山。この画像を見て id を選ぶ)")
+            return
+        if args.action == "search":
+            if not args.type:
+                raise SystemExit("--type が要る")
+            sides = sfxlib.search(" ".join(args.args), args.type, args.n)
+            for sd in sides:
+                print(f"{sd['file']}  {sd['dur_s']:.2f}s  {sd['verdict']}  {sd.get('source', {}).get('title', '')}")
+            if sides:
+                print(f"-> {sfxlib.sheet([sd['file'] for sd in sides], args.out)}  (良いものを `motion sfx add` で足す)")
+            return
+        if args.action == "add":
+            if not args.type:
+                raise SystemExit("--type が要る")
+            for sd in sfxlib.add(args.args, args.type, sfxlib.words(args.tags), args.credit):
+                print(f"{sd['file']}  {sd['verdict']}")
+            return
+        print(f"-> {sfxlib.sheet(args.args, args.out)}")
+        return
     if args.cmd == "studio":
         from .studio import serve as studio
         studio(args.project, args.port, args.scale, args.blur, None, not args.no_open)

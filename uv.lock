@@ -237,6 +237,7 @@ dependencies = [
     { name = "opencv-python" },
     { name = "pedalboard" },
     { name = "pyloudnorm" },
+    { name = "scipy" },
     { name = "skia-python" },
     { name = "uharfbuzz" },
 ]
@@ -253,6 +254,7 @@ requires-dist = [
     { name = "opencv-python", specifier = ">=5.0.0.93" },
     { name = "pedalboard", specifier = ">=0.9.25" },
     { name = "pyloudnorm", specifier = ">=0.2.0" },
+    { name = "scipy", specifier = ">=1.18.1" },
     { name = "skia-python", specifier = ">=144.0.post2" },
     { name = "uharfbuzz", specifier = ">=0.56.2" },
 ]

@@ -1,8 +1,10 @@
 """効果音の合成。各関数は Sound を返し、Mix.sfx(sound, t) で山 (peak) が時刻 t に来るように置ける。
 
-    mx.sfx(sfx.whoosh(0.6), cut_time)        # カットの瞬間に風切り音の頂点を合わせる
-    mx.sfx(sfx.riser(2.0), drop_time)       # ドロップに向けて上がっていく
-    mx.sfx(sfx.impact(), drop_time)
+打撃・クリック・風切りは合成せず、録音のライブラリ (sfxlib) から選ぶ。合成の音は安っぽいビープ音になりやすく、
+review が「合成の効果音」として数える。ここの関数は、録音が無い音 (音楽的なアクセント・試作) に限って使う。
+
+    mx.sfx(sfxlib.sound("whoosh", like="air"), cut_time)   # 録音を使う
+    mx.sfx(sfx.riser(2.0), drop_time)                      # 合成 (試作用)
 """
 from __future__ import annotations
 
@@ -17,10 +19,21 @@ SR = 48000
 class Sound:
     buf: np.ndarray  # (2, n) float32
     peak: float      # 山の位置 (秒)
+    origin: str = "synth"  # 録音なら sfxlib の id
 
     @property
     def duration(self) -> float:
         return self.buf.shape[1] / SR
+
+    def pitched(self, semitones: float) -> "Sound":
+        """再生速度を変えて音程をずらす (長さも変わる)。"""
+        if not semitones:
+            return self
+        rate = 2 ** (semitones / 12)
+        src = np.arange(self.buf.shape[1])
+        pos = np.arange(0, self.buf.shape[1] - 1, rate)
+        buf = np.vstack([np.interp(pos, src, ch) for ch in self.buf]).astype(np.float32)
+        return Sound(buf, self.peak / rate, self.origin)
 
 
 def _stereo(x: np.ndarray, pan: np.ndarray | float = 0.0) -> np.ndarray:

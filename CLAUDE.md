@@ -32,6 +32,8 @@ uv run python -m motion still projects/demo 3.5         # 1 フレームの PNG
 uv run python -m motion audio projects/demo             # 音だけ
 uv run python -m motion patches pads/                   # Surge XT のパッチ検索
 uv run python -m motion audition pads/ -n 8             # 候補を同じ和音で順に鳴らした build/audition.wav
+uv run python -m motion sfx browse hit --like "metal heavy"  # 効果音の候補と波形・スペクトログラムの画像 (build/sfx.png)
+uv run python -m motion sfx search "page turn" --type paper  # ライブラリに無い音を CC0 から探す → sfx add で足す
 uv run python -m motion analyze song.mp3                # 既存の曲の BPM・小節頭・強いオンセット
 uv run python -m motion scan capture.mp4 --top 6        # キャプチャの見せ場の候補とシーンの切れ目 (グラフ画像つき)
 uv run python -m motion render projects/devlog --set aspect=9:16          # build(aspect="9:16") で書き出す
@@ -58,7 +60,8 @@ uv run pytest                                           # テスト (描画を�
 | `post` | `bloom` `chroma` `grain` `vignette` `glitch` `scanlines` `flash` `grade`。引数に `lambda ctx: ...` を渡せる。光学系はリニア空間、演出系 (`fx.space = "display"`) は sRGB で処理される |
 | `media` | `Image` / `Video` (動画は `comp.prepare.append(clip.prepare)` で作品の fps にフレームを書き出す)、`fit="cover" / "contain"` |
 | `audio` | `Mix`: `hit` (サンプル)、`tone` (内蔵シンセ)、`instrument` (Surge XT 等の VST3。`patch="Pads/MKS-70 Warm Pad"` でパッチ指定)、`file` (音声・動画の音)、`clip` (Clip の音を速度変化に追従させる。フリーズ中は無音)、`sfx`、`fx` `duck`、`render` で LUFS を揃えて wav 出力 |
-| `sfx` | `whoosh` `riser` `impact` `click` `glitch` `reverse_swell`。`mx.sfx(sound, t)` で音の山を t に合わせる |
+| `sfxlib` | 録音の効果音 1,139 個 (CC0、19 種)。`sfxlib.sound("hit/<id>")` を `mx.sfx(sound, t)` で山を t に合わせて置く。打撃・クリック・風切りはここから選び、合成しない |
+| `sfx` | 合成の効果音 (`whoosh` `riser` `impact` `click` `glitch` `reverse_swell`)。録音が無い音の試作用 |
 | `analysis` | `analyze(path)` で BPM・拍・小節頭・オンセット。`info.timeline()` で Timeline にできる。小節頭がずれたら `shift_downbeats(n)` |
 | `cache` | `cached(comp, name, fn, *deps)` で重い前計算を build/<作品>/cache に保存し全ワーカーで共有 |
 | `footage` | ゲームのキャプチャ等。`Footage(path)` を `comp.prepare` に登録すると使う区間だけ書き出す。`Clip(footage, at, src_in, time=TimeMap().play().ramp().hold().rewind().seek())` で速度変化・フリーズ・逆再生・ジャンプカット。`interp="flow"` でスローを補間。`Grade` (露出・彩度・色温度・.cube LUT) |
@@ -96,6 +99,7 @@ uv run pytest                                           # テスト (描画を�
 | エフェクト | Surge XT Effects | VST3: `/Library/Audio/Plug-Ins/VST3/Surge XT Effects.vst3` |
 | VST ホスト | pedalboard | uv 環境。`pedalboard.load_plugin(<vst3 パス>)` で上記 VST3 を Python から鳴らす・かける |
 | ドラムサンプル | Dirt-Samples | `~/Music/Samples/Dirt-Samples/` (808bd, 808sd, 808hc, 808oh, 909, bd, sn, hh, cp など) |
+| 効果音 | motion-sfx | `~/Music/Samples/motion-sfx/` (`motion sfx kit` で Kenney・Freesound の CC0 から作る。出典は CREDITS.md) |
 | エンコード | ffmpeg | `/opt/homebrew/bin/ffmpeg` |
 
 ## Git 運用
