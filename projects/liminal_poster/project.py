@@ -11,7 +11,7 @@ import numpy as np
 import pedalboard as pb
 import skia
 
-from motion import Composition, Palette, audio, draw, post, rules, scene, sfx, text
+from motion import Composition, Cue, Palette, audio, draw, post, rules, scene, sfxlib, text
 from motion.anim import clamp, impact, lerp, progress
 from motion.checks import Check, color_along
 from motion.nodes import edits_of, node, props
@@ -55,6 +55,11 @@ pal = Palette(bg="#0E0E11", fg="#ECECEF", panel="#1C1C21", line="#34343C", blue=
 
 T_RETURN = 10.8       # 全部が 0 秒の状態へ戻り始める
 T_BACK = 11.0         # パレットが表に戻る
+T_H1 = T_FLIP + 0.35  # 見出し h1 が入り始める
+# 音を置く時刻は手で打たず、絵の動きの定義から出す
+T_FLIP_PEAK = rules.peak_time("move", T_FLIP, 0.7)
+T_H1_LAND = rules.land_time("headline", T_H1, frac=0.15)
+T_BACK_PEAK = rules.peak_time("move", T_BACK, 0.8)
 
 
 def phase(t: float) -> float:
@@ -66,7 +71,10 @@ def build(aspect: str = "1:1") -> Composition:
     W, H = {"16:9": (1920, 1080), "9:16": (1080, 1920), "1:1": (1080, 1080)}[aspect]
     comp = Composition(width=W, height=H, duration=LOOP, bpm=120, background=pal.bg, shots=shots,
                        motion_blur=3, loop=True, tune=P)
-    comp.cues = [T_UNDERLINE] + ARRIVE
+    # 反転の山は見出しの入りと重なり絵の動きでは測れないので、種類を付けない
+    comp.cues = [Cue(T_FLIP_PEAK), Cue(T_H1_LAND, "land", hero=True), Cue(T_UNDERLINE),
+                 *[Cue(t, "appear") for t in ARRIVE], Cue(T_WORDMARK, "appear", hero=True),
+                 Cue(T_BACK_PEAK, "move")]
 
     @scene(0, None, z=-10)
     def bg(c, ctx):
@@ -288,12 +296,13 @@ def build(aspect: str = "1:1") -> Composition:
                 text.text(c, label, 0, 0, size=size, axes={"wght": 900, "wdth": 112},
                           color=m.prop("color", "#ECECEF"), alpha=min(p, 1.0) * q)
                 c.restore()
-        with node(n.c, ctx, f"{id}.small", origin=(MARGIN, H - MARGIN - size * 0.86), label=f"見出し {id}: 小見出し") as m:
+        sx, sy = MARGIN + 5, H - MARGIN - size * 0.86 - 14
+        with node(n.c, ctx, f"{id}.small", origin=(sx, sy), label=f"見出し {id}: 小見出し") as m:
             q = rules.leave("headline", m.t, t1)
             a = progress(m.t, t0 + 0.2, t0 + 0.5) * q
             if a > 0:
-                text.text(m.c, m.prop("text", small), MARGIN, H - MARGIN - size * 0.86, font=MONO,
-                          size=m.prop("size", 24), color=m.prop("color", P.YELLOW), alpha=a)
+                text.text(m.c, m.prop("text", small), sx, sy, font=MONO,
+                          size=m.prop("size", 27), color=m.prop("color", P.YELLOW), alpha=a)
 
     def wordmark(c0, ctx, alpha: float, rise: float):
         with node(c0, ctx, "wordmark", origin=(MARGIN, H - MARGIN), label="ワードマーク", span=(T_WORDMARK, LOOP)) as n:
@@ -319,7 +328,7 @@ def build(aspect: str = "1:1") -> Composition:
     @scene(0, None, z=5, fixed=True)
     def captions(c, ctx):
         t = ctx.t
-        headline(c, ctx, "h1", P.H1, P.H1_SMALL, T_FLIP + 0.1, T_WAYS - 0.05)
+        headline(c, ctx, "h1", P.H1, P.H1_SMALL, T_H1, T_WAYS - 0.1)
         headline(c, ctx, "h2", P.H2, P.H2_SMALL, T_WAYS - 0.3, T_WORDMARK + 0.15)
         # ワードマークは 9 秒に見出しと入れ替わりで出て、ループをまたいで次の 1.8 秒まで残る
         if t >= T_WORDMARK:
@@ -341,6 +350,7 @@ def build(aspect: str = "1:1") -> Composition:
         return color_along(img, pts, edits_of(comp).prop("wires", "http_color", P.BLUE))
 
     comp.checks.append(Check("HTTP API の線の合流区間は青", [8.3, 8.7, 9.6], http_wire_is_blue))
+
     comp.add(bg, world, captions)
     comp.post = [
         post.bloom(threshold=0.7, strength=0.35, radius=20),
@@ -380,21 +390,24 @@ def make_audio(comp: Composition) -> str:
     mx.fx("arp", pb.HighpassFilter(cutoff_frequency_hz=300),
           pb.Delay(delay_seconds=tl.beat_len * 0.75, feedback=0.3, mix=0.22), pb.Reverb(room_size=0.5, wet_level=0.2))
     mx.fx("bass", pb.HighpassFilter(cutoff_frequency_hz=35), pb.LowpassFilter(cutoff_frequency_hz=900))
-    # UI の音: 入力、選択、下線、信号の到着
+    # 効果音は録音 (sfxlib)。系統は「ガラス + 空気」、見せ場 (見出しの着地・ロゴ) だけ低音を重ねる
+    keys = ["key/fs-180974-key-1", "key/fs-194795-vintage-keyboard-1-1", "key/fs-194797-vintage-keyboard-3-1"]
     for k in range(len(QUERY)):
-        mx.sfx(sfx.click(3200 + (k % 3) * 300, pan=-0.2 + 0.4 * (k % 2)), T_TYPE + k / TYPE_RATE, gain_db=-17)
-    mx.sfx(sfx.click(1800, 0.06), T_SELECT, gain_db=-11)
-    mx.sfx(sfx.whoosh(0.6, rise=0.6, seed=1), T_FLIP + 0.35, gain_db=-12)
-    mx.sfx(sfx.click(2600, 0.1), T_UNDERLINE, gain_db=-9)
+        mx.sfx(sfxlib.sound(keys[k % 3], pitch=(k * 7 % 5 - 2) * 0.3), T_TYPE + k / TYPE_RATE, None,
+               pan=-0.2 + 0.4 * (k % 2))
+    mx.sfx(sfxlib.sound("click/kenney-interface-click-001"), T_SELECT, None)
+    mx.sfx(sfxlib.sound("swish/fs-14175-27-wav-1"), T_FLIP_PEAK, None, pan=-0.2)
+    mx.hero(T_H1_LAND, hit="hit/fs-150566-percussive-sounddesign-2-f1-2", boom="boom/fs-636624-deep-hit-2",
+            riser="riser/fs-608217-inhale-with-glass-wav-1")
+    mx.sfx(sfxlib.sound("tap/kenney-impact-impact-glass-light-000"), T_UNDERLINE, None)
     for i, t in enumerate(ARRIVE):
         mx.hit(["808lt", "808mt", "808ht"][i], t, gain_db=-4, pan=-0.3 + 0.3 * i)
-        mx.sfx(sfx.whoosh(0.4, rise=0.95, f0=400, f1=5000, seed=10 + i), t, gain_db=-15)
-        mx.sfx(sfx.click(2200 + 400 * i, 0.1), t, gain_db=-8)
-    mx.sfx(sfx.impact(1.0, noise=0.3), ARRIVE[-1], gain_db=-8)
-    mx.sfx(sfx.reverse_swell(0.8), T_WORDMARK, gain_db=-14)
-    mx.sfx(sfx.whoosh(0.7, seed=4), T_BACK + 0.4, gain_db=-13)
+        mx.sfx(sfxlib.sound(f"tap/kenney-impact-impact-glass-heavy-00{i}", pitch=2 * i), t, None, pan=-0.3 + 0.3 * i)
+    mx.hero(T_WORDMARK, hit="hit/fs-201570-jm-fx-hit-01a-dark-wav-1", boom="boom/fs-636624-deep-hit-2",
+            riser="reverse/fs-710864-metal-pole-hit-reverse-3")
+    mx.sfx(sfxlib.sound("chime/fs-404104-glass-ding-3"), T_WORDMARK + 0.05, None)
+    mx.sfx(sfxlib.sound("whoosh/fs-30240-swoop1-flac-1"), T_BACK_PEAK, None, pan=0.2)
     mx.duck("pad", beats, -9)
     mx.duck("arp", beats, -4)
     mx.fx("drums", pb.Compressor(threshold_db=-14, ratio=3), pb.Reverb(room_size=0.2, wet_level=0.06))
-    mx.fx("sfx", pb.Reverb(room_size=0.5, wet_level=0.15))
     return mx.render(f"{comp.build_dir}/audio.wav", lufs=-14, loop=True)
