@@ -75,6 +75,27 @@ def leave(kind: str, t: float, t1: float, dur: float | None = None) -> float:
     return 1.0 - EXIT(clamp((t - (t1 - d)) / d))
 
 
+def _speed(kind: str, t0: float, dur: float | None) -> tuple[list[float], list[float]]:
+    span = (dur or rule(kind).dur) * 3
+    ts = [t0 + span * i / 3000 for i in range(3001)]
+    xs = [enter(kind, t, t0, dur) for t in ts]
+    return ts[1:], [abs(b - a) for a, b in zip(xs, xs[1:])]
+
+
+def peak_time(kind: str, t0: float, dur: float | None = None) -> float:
+    """t0 から入る要素が最も速く動く時刻。風切り音 (Cue の move) はここに置く。"""
+    ts, v = _speed(kind, t0, dur)
+    return ts[max(range(len(v)), key=v.__getitem__)]
+
+
+def land_time(kind: str, t0: float, dur: float | None = None, frac: float = 0.05) -> float:
+    """t0 から入る要素が止まる時刻 (速さが最大の frac 未満に落ちきる)。着地の音 (Cue の land) はここに置く。"""
+    ts, v = _speed(kind, t0, dur)
+    vmax = max(v)
+    i = max(i for i, x in enumerate(v) if x >= vmax * frac)
+    return ts[i]
+
+
 def scale_in(kind: str, p: float) -> float:
     """入りの進み具合から大きさを出す。0 からではなく from_scale から 1 へ。"""
     s0 = rule(kind).from_scale

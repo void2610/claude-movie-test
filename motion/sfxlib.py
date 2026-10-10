@@ -177,7 +177,8 @@ def measure(x: np.ndarray, t: dict) -> dict:
     spec = np.abs(np.fft.rfft(x * np.hanning(len(x)))) ** 2
     fr = np.fft.rfftfreq(len(x), 1 / SR)
     tot = spec.sum() + 1e-20
-    env = envelope(x, 0.002)
+    from .soundqa import peak_env
+    env = peak_env(x)
     p = int(np.argmax(env))
     a10 = np.where(env[:p + 1] >= 0.1 * env[p])[0]
     a90 = np.where(env[:p + 1] >= 0.9 * env[p])[0]
@@ -208,7 +209,7 @@ def measure(x: np.ndarray, t: dict) -> dict:
         build_db=round(float(20 * np.log10((env30[-q:].mean() + 1e-12) / (env30[:2 * q].mean() + 1e-12))), 1),
         start_db=round(rel(env10[:edge].max()), 1),
         end_db=round(rel(env10[-edge:].max()), 1),
-        spikiness=round(float(env.max() / (env30.max() + 1e-12)), 2),
+        spikiness=round(float(envelope(x, 0.002).max() / (env30.max() + 1e-12)), 2),
     )
 
 

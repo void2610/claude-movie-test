@@ -60,3 +60,49 @@ def test_loop_render_wraps_tail_to_head(tmp_path):
     y = audio.load(mx.render(tmp_path / "loop.wav", lufs=-20, loop=True))
     assert np.abs(y[:, :int(0.1 * 48000)]).max() > 0.01      # 1 秒をはみ出した音が頭に回り込む
     assert np.abs(y[:, -100:]).max() > 0.01                   # 末尾をフェードで切らない
+
+
+def _bed_mix(dur=4.0):
+    mx = audio.Mix(dur, tail=0.5)
+    for i in range(int(dur / 0.25)):
+        mx.tone(i * 0.25, 0.24, "A2", wave="saw", gain_db=-6, bus="music")
+    return mx
+
+
+def test_auto_gain_follows_the_music_level():
+    from motion import sfx
+    gains = []
+    for music_db in (-30.0, -6.0):
+        mx = audio.Mix(2.0, tail=0.5)
+        mx.tone(0.0, 2.0, "A2", wave="saw", gain_db=music_db, bus="music")
+        ev = mx.sfx(sfx.impact(0.6), 1.0, gain_db=None)
+        mx.mixdown()
+        gains.append(ev["gain_db"])
+    # 音楽が 24dB 大きいと、同じだけ浮かせるために効果音も大きくなる
+    assert gains[1] - gains[0] > 15
+
+
+def test_hero_layers_stops_the_music_and_builds(tmp_path):
+    from motion import sfx
+    from motion.scene import Composition, Cue
+    from motion.soundqa import check
+    mx = _bed_mix()
+    ev = mx.hero(2.0, hit=sfx.impact(0.8), boom=sfx.impact(1.2, f_start=90, f_end=30, seed=5),
+                 riser=sfx.riser(1.5))
+    path = mx.render(tmp_path / "h.wav", lufs=-14)
+    boom = next(e for e in mx.events if e["t"] == 2.0 and not e["hero"] and e["dur"] > 1.0)
+    assert boom["gain_db"] == round(ev["gain_db"] - 4, 2)
+    bed = audio.load(str(tmp_path / "h.bed.wav"))
+    rms = lambda a, b: float(np.sqrt(np.mean(bed[:, int(a * 48000):int(b * 48000)] ** 2)))  # noqa: E731
+    # 直前 0.4 秒の音楽は止まっている
+    assert rms(1.7, 1.98) < rms(1.0, 1.3) * 0.2
+    q = check(Composition(duration=4.0, fps=30, cues=[Cue(2.0, hero=True)]), path, np.zeros(120))
+    assert [f.rule for f in q.findings] == []
+
+
+def test_hp_build_removes_low_end_toward_the_cue():
+    t = np.arange(48000 * 2) / 48000
+    y = np.vstack([np.sin(2 * np.pi * 60 * t)] * 2).astype(np.float32)
+    out = audio._hp_build(y, 2.0, 2.0, 48000)
+    early, late = np.abs(out[0, 4800:9600]).max(), np.abs(out[0, -4800:]).max()
+    assert late < early * 0.3

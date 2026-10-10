@@ -257,6 +257,130 @@ def audition(patches: list[str | Path], out: str | Path, notes: Iterable[int | s
     return index
 
 
+_BANDS = [(125, 250), (250, 500), (500, 1000), (1000, 2000), (2000, 4000), (4000, 8000), (8000, 16000)]
+
+
+def _band(x: np.ndarray, lo: float, hi: float, sr: int) -> float:
+    from scipy import signal
+    hi = min(sr / 2 - 100, hi)
+    if len(x) < 64 or hi <= lo * 1.05:
+        return 0.0
+    return float(np.sqrt(np.mean(signal.sosfilt(signal.butter(4, [lo, hi], "bandpass", fs=sr, output="sos"), x) ** 2)))
+
+
+def _bands_at(x: np.ndarray, pk: int, start: float, bed: np.ndarray, sr: int):
+    """効果音 x の本体 (山の 10ms 前から 20dB 下がるまで、40〜150ms) と、同じ時刻の音楽の、帯域ごとの音量。"""
+    s0 = int(round(start * sr))
+    n = len(bed)
+    seg = x[pk:pk + int(0.3 * sr)]
+    k_ = max(1, int(0.005 * sr))
+    env = np.sqrt(np.convolve(seg * seg, np.ones(k_) / k_, mode="same")) if len(seg) else np.zeros(1)
+    k0 = int(np.argmax(env))
+    below = np.flatnonzero(env[k0:] < env.max() * 0.1)
+    dur = np.clip(((below[0] + k0) if len(below) else len(env)) / sr, 0.04, 0.15)
+    a, b = max(0, pk - int(0.01 * sr)), min(len(x), pk + int(dur * sr))
+    if pk > 0.7 * len(x):
+        # 山に向かって育つ音 (ライザー・逆再生) は、中身が山の手前にある
+        a, b = max(0, pk - int(0.3 * sr)), pk + 1
+    xa = x[a:b]
+    bseg = np.zeros(len(xa))
+    lo, hi = max(s0 + a, 0), min(s0 + a + len(xa), n)
+    if hi > lo:
+        bseg[lo - (s0 + a):hi - (s0 + a)] = bed[lo:hi]
+    floor = 10 ** (-60 / 20)
+    e_b = np.array([_band(xa, lo, hi, sr) for lo, hi in _BANDS])
+    m_b = np.maximum([_band(bseg, lo, hi, sr) for lo, hi in _BANDS], floor)
+    return xa, bseg, e_b, m_b
+
+
+def _lift(x: np.ndarray, pk: int, start: float, bed: np.ndarray, gain_db: float, sr: int) -> tuple[float, list, float]:
+    """音量 gain_db で置いた効果音が、音楽より何 dB 浮くか: (主な帯域のうち最も浮く量, その帯域, 最も強い帯域での量)。"""
+    xa, bseg, e_b, m_b = _bands_at(x, pk, start, bed, sr)
+    share = e_b ** 2 / (np.sum(e_b ** 2) + 1e-20)
+    g = 10 ** (gain_db / 20)
+    lifts = [20 * math.log10(_band(bseg + xa * g, lo, hi, sr) / m + 1e-12) for (lo, hi), m in zip(_BANDS, m_b)]
+    ok = [i for i in range(len(_BANDS)) if share[i] >= 0.1]
+    k = max(ok, key=lambda i: lifts[i]) if ok else int(np.argmax(share))
+    return round(lifts[k], 2), list(_BANDS[k]), round(lifts[int(np.argmax(share))], 2)
+
+
+def _solve_gain(x: np.ndarray, pk: int, start: float, bed: np.ndarray, hero: bool, sr: int) -> float:
+    """効果音 x (山は pk サンプル目) を、時刻 start に置いたとき音楽などより自分の帯域で浮く音量 (dB)。
+
+    見せ場は一番エネルギーのある帯域で +5dB、それ以外は一番浮かせやすい帯域で +3.5dB。2〜8kHz の浮きは
+    6dB (見せ場 9dB) まで、ピークは周りの音楽のピークの +6dB (見せ場 +8dB) までに抑える (耳に刺さらないように)。
+    """
+    s0 = int(round(start * sr))
+    n = len(bed)
+    xa, bseg, e_b, m_b = _bands_at(x, pk, start, bed, sr)
+    floor = 10 ** (-60 / 20)
+    share = e_b ** 2 / (np.sum(e_b ** 2) + 1e-20)
+    lift = 5.0 if hero else 3.5
+    need = np.where(share >= 0.1, m_b * math.sqrt(10 ** (lift / 10) - 1) / (e_b + 1e-12), np.inf)
+    k = int(np.argmax(share)) if hero else int(np.argmin(need))
+    g = float(m_b[k] * math.sqrt(10 ** (lift / 10) - 1) / (e_b[k] + 1e-12))
+    e28 = _band(xa, 2000, 8000, sr)
+    bed_rms = float(np.sqrt(np.mean(bseg ** 2))) if len(bseg) else 0.0
+    m28 = max(_band(bseg, 2000, 8000, sr), bed_rms * 10 ** (-20 / 20), floor)
+    # 芯が 2kHz より下にある見せ場は、明るい縁のために全体を抑えない
+    if e28 > 0 and not (hero and _BANDS[k][1] <= 2000):
+        g = min(g, m28 * math.sqrt(10 ** ((9 if hero else 6) / 10) - 1) / e28)
+    # 見せ場は直前の無音で周りが静かなので、±1 秒の音楽のピークを基準にする
+    reach = int((1.0 if hero else 0.15) * sr)
+    p = s0 + pk
+    lw0, lw1 = min(max(0, p - reach), n), min(max(0, p + reach), n)
+    bed_pk = max(float(np.abs(bed[lw0:lw1]).max()) if lw1 > lw0 else 0.0, 10 ** (-26 / 20))
+    g = min(g, bed_pk * 10 ** ((8 if hero else 6) / 20) / (np.abs(x).max() + 1e-12))
+    return 20 * math.log10(max(g, 1e-6))
+
+
+def _dead_stop(y: np.ndarray, t: float, dur: float, sr: int) -> np.ndarray:
+    """t の直前 dur 秒を -24dB まで落とす (20ms で滑らかに)。見せ場の打撃を際立たせる。"""
+    g = np.ones(y.shape[1], np.float32)
+    a, b = int(max(0.0, t - dur) * sr), min(int(t * sr), y.shape[1])
+    if b <= a:
+        return y
+    g[a:b] = 10 ** (-24 / 20)
+    k = max(1, int(0.02 * sr))
+    g = np.convolve(g, np.ones(k) / k, mode="same").astype(np.float32)
+    return y * g
+
+
+def _hp_build(y: np.ndarray, t: float, dur: float, sr: int) -> np.ndarray:
+    """t までの dur 秒で、ハイパスを 40Hz から 300Hz へ上げる (低音が抜けて、打撃で戻る)。"""
+    from scipy import signal
+    a, b = int(max(0.0, t - dur) * sr), min(int(t * sr), y.shape[1])
+    if b - a < sr // 10:
+        return y
+    seg = y[:, a:b].astype(np.float64)
+    cuts = np.geomspace(40, 300, 16)
+    vers = [signal.sosfilt(signal.butter(2, c, "highpass", fs=sr, output="sos"), seg, axis=1) for c in cuts]
+    pos = np.linspace(0, len(cuts) - 1, b - a)
+    k = np.minimum(pos.astype(int), len(cuts) - 2)
+    w = pos - k
+    out = np.empty_like(seg)
+    for j in range(len(cuts) - 1):
+        m = k == j
+        out[:, m] = (1 - w[m]) * vers[j][:, m] + w[m] * vers[j + 1][:, m]
+    y = y.copy()
+    y[:, a:b] = out
+    return y
+
+
+def _room(y: np.ndarray, decay: float, wet_db: float, sr: int, seed: int = 7) -> np.ndarray:
+    """左右で無相関な短い残響 (12ms の前置き遅延、250Hz〜7kHz、残響時間 decay 秒) を wet_db で足す。"""
+    from scipy import signal
+    rng = np.random.default_rng(seed)
+    n = int(decay * sr)
+    t = np.arange(n) / sr
+    ir = rng.standard_normal((2, n)) * np.exp(-6.91 * t / decay)
+    ir = signal.sosfilt(signal.butter(2, [250, 7000], "bandpass", fs=sr, output="sos"), ir, axis=1)
+    ir = np.hstack([np.zeros((2, int(0.012 * sr))), ir / np.sqrt(np.sum(ir ** 2, axis=1, keepdims=True))])
+    mono = y.mean(axis=0).astype(np.float64)
+    wet = np.vstack([signal.fftconvolve(mono, ir[ch])[:y.shape[1]] for ch in (0, 1)])
+    return (y + wet * 10 ** (wet_db / 20)).astype(np.float32)
+
+
 class Mix:
     def __init__(self, duration: float, sr: int = SR, tail: float = 1.5):
         self.sr = sr
@@ -268,6 +392,13 @@ class Mix:
         self.ducks: dict[str, tuple] = {}
         # 置いた効果音の記録。review が絵との一致・聞こえ方を検査するのに使う
         self.events: list[dict] = []
+        # 音量を後で決める効果音 (音楽などが揃ってから、その音の帯域で浮く量を解く)
+        self._pending: list[dict] = []
+        self._bufs: list[tuple[dict, np.ndarray, float]] = []
+        self._loop = False
+        self.stops: list[dict] = []
+        self.builds: list[dict] = []
+        self.room_params: tuple[float, float] | None = (0.6, -16.0)
 
     def bus(self, name: str) -> np.ndarray:
         if name not in self.buses:
@@ -299,12 +430,52 @@ class Mix:
         if m > 0:
             self.bus(bus)[:, i0:i0 + m] += buf[:, j0:j0 + m]
 
-    def sfx(self, sound, t: float, gain_db: float = 0.0, pan: float = 0.0, bus: str = "sfx", hero: bool = False) -> None:
-        """sfx.Sound を、山 (peak) がちょうど時刻 t に来るように置く。hero=True は見せ場の音 (検査が厳しくなる)。"""
-        self.place(sound.buf, t - sound.peak, gain_db, pan, bus)
-        self.events.append(dict(t=round(float(t), 4), start=round(float(t - sound.peak), 4),
-                                dur=round(sound.duration, 4), origin=getattr(sound, "origin", "synth"), bus=bus,
-                                hero=hero, gain_db=gain_db))
+    def sfx(self, sound, t: float, gain_db: float | None = 0.0, pan: float = 0.0, bus: str = "sfx",
+            hero: bool = False, rel_to: dict | None = None) -> dict:
+        """sfx.Sound を、山 (peak) がちょうど時刻 t に来るように置く。hero=True は見せ場の音 (検査が厳しくなる)。
+
+        gain_db=None は音量を自動で決める: 効果音以外のバスに対し、その音の帯域で +3.5dB (見せ場 +5dB) 浮かせる。
+        rel_to に別の sfx の戻り値を渡すと、その音量 + gain_db にする (重ねる層用)。
+        """
+        ev = dict(t=round(float(t), 4), start=round(float(t - sound.peak), 4), dur=round(sound.duration, 4),
+                  origin=getattr(sound, "origin", "synth"), bus=bus, hero=hero, gain_db=gain_db,
+                  layer=rel_to is not None)
+        self.events.append(ev)
+        self._bufs.append((ev, sound.buf, sound.peak))
+        if gain_db is None or rel_to is not None:
+            self._pending.append(dict(ev=ev, buf=sound.buf, peak=sound.peak, pan=pan, rel_to=rel_to,
+                                      offset=gain_db or 0.0))
+        else:
+            self.place(sound.buf, t - sound.peak, gain_db, pan, bus)
+        return ev
+
+    def hero(self, t: float, hit="hit", boom="boom", riser="riser", stop_before: float = 0.4,
+             build: float = 2.0, pan: float = 0.0, bus: str = "sfx", gain_db: float | None = None,
+             music: list[str] | None = None) -> dict:
+        """見せ場の音。打撃と低音を山で揃えて重ね (低音は -4dB)、ライザーの山をそこに合わせる。
+
+        直前 stop_before 秒は音楽 (music のバス、既定は効果音以外の全部) を止め、build 秒前からハイパスで
+        低音を抜いて盛り上げる。hit / boom / riser は sfxlib の id か種類か Sound。None で省く。
+        """
+        from . import sfxlib
+
+        def get(x):
+            return sfxlib.sound(x) if isinstance(x, str) else x
+
+        ev = self.sfx(get(hit), t, gain_db, pan, bus, hero=True)
+        if boom is not None:
+            self.sfx(get(boom), t, -4.0, pan, bus, rel_to=ev)
+        if riser is not None:
+            self.sfx(get(riser), t, None, pan, bus)
+        if stop_before:
+            self.stops.append(dict(t=float(t), dur=stop_before, music=music))
+        if build:
+            self.builds.append(dict(t=float(t), dur=build, music=music))
+        return ev
+
+    def room(self, decay: float | None = 0.6, wet_db: float = -16.0) -> None:
+        """効果音のバス全体に共通の短い残響 (出所の違う録音を同じ部屋に置く)。None で切る。"""
+        self.room_params = None if decay is None else (decay, wet_db)
 
     def file(self, path: str | Path, t: float = 0.0, offset: float = 0.0, length: float | None = None,
              gain_db: float = 0.0, pan: float = 0.0, bus: str = "media") -> None:
@@ -414,18 +585,68 @@ class Mix:
             env[seg] = np.minimum(env[seg], 1 - depth * attack * np.exp(-dt / release * 3))
         return env
 
+    def _proc(self, name: str) -> np.ndarray:
+        y = self.buses[name]
+        if name in self.chains:
+            y = pb.Pedalboard(self.chains[name])(y, self.sr)
+        if name in self.ducks:
+            y = y * self._duck_env(*self.ducks[name])
+        z = np.zeros((2, self.n), np.float32)
+        z[:, :min(y.shape[1], self.n)] = y[:, :self.n] * db(self.gains.get(name, 0.0))
+        return z
+
     def _processed(self) -> dict[str, np.ndarray]:
-        out = {}
-        for name, buf in self.buses.items():
-            y = buf
-            if name in self.chains:
-                y = pb.Pedalboard(self.chains[name])(y, self.sr)
-            if name in self.ducks:
-                y = y * self._duck_env(*self.ducks[name])
-            z = np.zeros((2, self.n), np.float32)
-            z[:, :min(y.shape[1], self.n)] = y[:, :self.n] * db(self.gains.get(name, 0.0))
-            out[name] = z
+        sfx_b = {e["bus"] for e in self.events}
+        out = {k: self._proc(k) for k in list(self.buses) if k not in sfx_b}
+        for st in self.stops:
+            for k in st["music"] or out:
+                if k in out:
+                    out[k] = _dead_stop(out[k], st["t"], st["dur"], self.sr)
+        for b in self.builds:
+            for k in b["music"] or out:
+                if k in out:
+                    out[k] = _hp_build(out[k], b["t"], b["dur"], self.sr)
+        bed = sum(out.values(), np.zeros((2, self.n), np.float32)).mean(axis=0)
+        end = int(self.duration * self.sr)
+        if self._loop:
+            # ループ作品は尺を超えた残響が頭に回り込むので、それも含めた音楽に対して音量を決める
+            bed = bed.copy()
+            for k in range(end, len(bed), end):
+                seg = bed[k:k + end]
+                bed[:len(seg)] += seg
+        self._place_pending(bed)
+        for ev, buf, peak in self._bufs:
+            pk = int(round(peak * self.sr))
+            ev["lift_db"], ev["band"], ev["body_db"] = _lift(buf.mean(axis=0), pk, ev["start"], bed, ev["gain_db"],
+                                                             self.sr)
+        for k in sorted(sfx_b):
+            if k in self.buses:
+                y = self._proc(k)
+                out[k] = _room(y, *self.room_params, self.sr) if self.room_params else y
         return out
+
+    def _place_pending(self, bed: np.ndarray) -> None:
+        done = []
+        # 重ねる層は親の音量が決まってから置く
+        for p in sorted(self._pending, key=lambda p: p["rel_to"] is not None):
+            ev = p["ev"]
+            if p["rel_to"] is not None:
+                ev["gain_db"] = round(p["rel_to"]["gain_db"] + p["offset"], 2)
+            else:
+                kind = ev["origin"].split("/")[0]
+                prev = [d["ev"] for d in done if d["rel_to"] is None and d["ev"]["t"] <= ev["t"]]
+                g = _solve_gain(p["buf"].mean(axis=0), int(round(p["peak"] * self.sr)), ev["start"], bed, ev["hero"],
+                                self.sr)
+                # 0.15 秒以内に別の音が続くと 0.6 倍 (見せ場に重ねる音と、打鍵のような同じ種類の連打は除く)
+                last = max(prev, key=lambda e: e["t"]) if prev else None
+                in_hero = any(e["hero"] and e["t"] == ev["t"] for e in self.events)
+                if (last and ev["t"] - last["t"] < 0.15 and not ev["hero"] and not in_hero
+                        and (kind == "synth" or last["origin"].split("/")[0] != kind)):
+                    g += 20 * math.log10(0.6)
+                ev["gain_db"] = round(g, 2)
+            self.place(p["buf"], ev["start"], ev["gain_db"], p["pan"], ev["bus"])
+            done.append(p)
+        self._pending = []
 
     def mixdown(self) -> np.ndarray:
         return sum(self._processed().values(), np.zeros((2, self.n), np.float32))
@@ -438,6 +659,7 @@ class Mix:
         天井の既定 -2dB は、AAC にした後の真のピークを -1dBTP 以下に保つため。
         横に <名前>.sfx.wav (効果音のバス) と <名前>.bed.wav (それ以外) と <名前>.mix.json (効果音の記録) を書く。
         """
+        self._loop = loop
         procs = self._processed()
         src = sum(procs.values(), np.zeros((2, self.n), np.float32))
         if master:
@@ -480,6 +702,8 @@ class Mix:
             with AudioFile(f"{base}.{k}.wav", "w", self.sr, num_channels=2) as f:
                 f.write((v * gy).astype(np.float32))
         report = dict(duration=self.duration, lufs=lufs, ceiling_db=ceiling_db, gain_db=round(20 * math.log10(gy), 2),
-                      loop=loop, sfx_buses=sfx_buses, events=self.events)
+                      loop=loop, sfx_buses=sfx_buses, events=self.events,
+                      stops=[dict(t=x["t"], dur=x["dur"]) for x in self.stops],
+                      builds=[dict(t=x["t"], dur=x["dur"]) for x in self.builds])
         Path(f"{base}.mix.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
         return str(path)

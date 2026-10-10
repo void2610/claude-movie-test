@@ -82,6 +82,12 @@ def _env(x: np.ndarray, win_s: float) -> np.ndarray:
     return np.sqrt(np.convolve(x * x, np.ones(n) / n, mode="same"))
 
 
+def peak_env(x: np.ndarray, win_s: float = 0.002) -> np.ndarray:
+    """山の位置を測る包絡。低音は 1 周期が数十 ms あり、短い窓の音量だと波の山を拾うので、解析信号の振幅を使う。"""
+    n = max(1, int(win_s * SR))
+    return np.convolve(np.abs(signal.hilbert(x)), np.ones(n) / n, mode="same")
+
+
 def _active_window(sfx: np.ndarray, p: int) -> tuple[int, int]:
     """山の 10ms 前から、20dB 下がるまで (40〜150ms)。短いクリックを 150ms に薄めて判定しない。"""
     seg = sfx[p:p + int(0.3 * SR)]
@@ -172,26 +178,42 @@ def check(comp, wav: str | Path | None, diff: np.ndarray) -> SoundQA:
     bed = bed2.mean(axis=0)
     events = sorted(report["events"], key=lambda e: e["t"])
     q.events = events
-    env = _env(sfx, 0.002)
+    env = peak_env(sfx)
     synth = [e for e in events if e["origin"] == "synth"]
     if synth:
         warn("sound: 合成の効果音", synth[0]["t"],
              f"{len(synth)} 個が合成 (打撃・クリック・風切りは sfxlib の録音から選ぶ)")
     margins = []
+    times = sorted({e["t"] for e in events})
     for k, e in enumerate(events):
         hero = e["hero"]
         p = int(e["t"] * SR)
-        # 隣の効果音の山を拾わないよう、探す範囲を隣との中間までに狭める
-        gap_l = (e["t"] - events[k - 1]["t"]) / 2 if k > 0 else 0.06
-        gap_r = (events[k + 1]["t"] - e["t"]) / 2 if k + 1 < len(events) else 0.06
-        lo = max(0, p - int(min(0.06, max(gap_l, 0.004)) * SR))
-        hi = min(len(env), p + int(min(0.06, max(gap_r, 0.004)) * SR))
-        if hi <= lo:
+        # 同じ時刻に重ねた層は山を揃えて置いてあるので、置き場所は時刻ごとに 1 度だけ (見せ場を優先して) 測る
+        first = next(x for x in events if x["t"] == e["t"] and (x["hero"] or not any(
+            y["hero"] for y in events if y["t"] == e["t"])))
+        if first is e:
+            # 隣の効果音の山を拾わないよう、探す範囲を隣との中間までに狭める
+            j = times.index(e["t"])
+            gap_l = (e["t"] - times[j - 1]) / 2 if j > 0 else 0.06
+            gap_r = (times[j + 1] - e["t"]) / 2 if j + 1 < len(times) else 0.06
+            lo = max(0, p - int(min(0.06, gap_l) * SR))
+            hi = min(len(env), p + int(min(0.06, gap_r) * SR))
+            if hi > lo:
+                found = lo + int(np.argmax(env[lo:hi]))
+                off = abs(found - p) / SR * fps
+                if off > (1 if hero else 2):
+                    (err if hero else warn)("sound: 置き場所", e["t"], f"{e['origin']}: 山が {off:.1f} コマずれている")
+        if e.get("layer"):
             continue
-        found = lo + int(np.argmax(env[lo:hi]))
-        off = abs(found - p) / SR * fps
-        if off > (1 if hero else 2):
-            (err if hero else warn)("sound: 置き場所", e["t"], f"{e['origin']}: 山が {off:.1f} コマずれている")
+        if "lift_db" in e:
+            margins.append((e["lift_db"], e))
+            if e["lift_db"] < 1.5:
+                (err if hero else warn)("sound: 聞こえない", e["t"],
+                                        f"{e['origin']}: 自分の帯域で {e['lift_db']:.1f}dB しか浮かない (1.5dB 以上)"
+                                        f" {e['band'][0]}-{e['band'][1]}Hz")
+            if hero and e["body_db"] < 3.0:
+                err("sound: 見せ場の芯", e["t"], f"{e['origin']}: 一番強い帯域で {e['body_db']:.1f}dB (3dB 以上)")
+            continue
         w0, w1 = _active_window(sfx, p)
         w1 = min(len(sfx), w1)
         fx_b = [band_rms(sfx[w0:w1], a, b) for a, b in BANDS]

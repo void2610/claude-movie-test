@@ -24,3 +24,12 @@ def test_read_time_and_stagger():
     starts = [rules.stagger(i, 20, 1.0) for i in range(20)]
     assert starts[-1] - starts[0] <= 0.5 + 1e-9
     assert rules.scale_in("panel", 0.0) == pytest.approx(0.94)
+
+
+def test_peak_and_land_times_come_from_the_motion_itself():
+    from motion import rules
+    # 対称な加減速は真ん中が最も速い
+    assert abs(rules.peak_time("move", 2.0, 0.7) - 2.35) < 0.002
+    assert 2.6 < rules.land_time("move", 2.0, 0.7) <= 2.7
+    # ばねは止まるまでが長い。速さの許容を広げると早く止まったとみなす
+    assert rules.land_time("headline", 0.0, frac=0.15) < rules.land_time("headline", 0.0, frac=0.05)
