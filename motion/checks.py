@@ -98,3 +98,39 @@ def edge_clips(img: np.ndarray, band: int = 3, min_run: int = 12) -> list[tuple[
                     out.append((side, i - run, run))
                 run = 0
     return out
+
+
+def text_overlaps(seen: dict, min_alpha: float = 0.6, min_share: float = 0.2) -> list[tuple[str, str, float]]:
+    """1 コマの中で、別々の要素が描いた文字が重なっている組 (要素, 要素, 小さい方の面積に対する重なり)。
+
+    入れ替えの途中の見出しのように片方が薄い (min_alpha 未満) か、クリップで場所が分かれていれば数えない。
+    2.5D のカードの中の文字は手前のカードに隠れるので比べない。
+    """
+    def chain(s):
+        out, p = [], s.parent
+        while p is not None and p not in out:
+            out.append(p)
+            p = seen[p].parent if p in seen else None
+        return out
+
+    def area(r):
+        return max(r[2] - r[0], 0.0) * max(r[3] - r[1], 0.0)
+
+    texts = []
+    for s in seen.values():
+        anc = chain(s)
+        if (s.text >= min_alpha and s.text_box and s.space == "2d"
+                and not any(seen[a].space != "2d" for a in anc if a in seen)):
+            texts.append((s, set(anc)))
+    out = []
+    for i, (a, anc_a) in enumerate(texts):
+        for b, anc_b in texts[i + 1:]:
+            if a.id in anc_b or b.id in anc_a:
+                continue
+            ra, rb = a.text_box, b.text_box
+            ix = min(ra[2], rb[2]) - max(ra[0], rb[0])
+            iy = min(ra[3], rb[3]) - max(ra[1], rb[1])
+            small = min(area(ra), area(rb))
+            if ix > 0 and iy > 0 and small > 0 and ix * iy > min_share * small:
+                out.append((a.id, b.id, ix * iy / small))
+    return out

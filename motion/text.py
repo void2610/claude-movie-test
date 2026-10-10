@@ -8,6 +8,7 @@ from pathlib import Path
 import skia
 import uharfbuzz as hb
 
+from . import nodes as _nodes
 from .color import Color
 from .draw import paint as make_paint
 
@@ -212,7 +213,9 @@ def text(c: skia.Canvas, s: str, x: float, y: float, *, font: str = "sans", size
     ox, oy = origin(sh, x, y, align, valign)
     blob = sh.blob()
     if blob is not None:
-        c.drawTextBlob(blob, ox, oy, paint or make_paint(color, alpha=alpha, **paint_kw))
+        p = paint or make_paint(color, alpha=alpha, **paint_kw)
+        c.drawTextBlob(blob, ox, oy, p)
+        _nodes.note_text(c, p.getAlphaf(), (ox, oy - sh.cap_height, ox + sh.width, oy))
     return sh
 
 
@@ -296,4 +299,5 @@ def paragraph(c: skia.Canvas, s: str, x: float, y: float, width: float, *, font:
         blob = ln.shaped.blob()
         if blob is not None:
             c.drawTextBlob(blob, x + ln.x, y + top + ln.y, p)
+            _nodes.note_text(c, p.getAlphaf(), (x + ln.x, y + ln.y, x + ln.x + ln.shaped.width, y + top + ln.y))
     return lines

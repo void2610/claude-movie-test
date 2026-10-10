@@ -11,6 +11,7 @@ from . import easing
 from .anim import clamp, progress, window
 from .color import Color, to_color
 from .draw import paint, path, trim
+from .nodes import note_text
 from .scene import Ctx, Scene
 from .text import layout, shape, text
 
@@ -163,3 +164,4 @@ class Captions(Scene):
                 stroke.setStrokeJoin(skia.Paint.kRound_Join)
                 c.drawTextBlob(blob, ox + ln.x, y, stroke)
                 c.drawTextBlob(blob, ox + ln.x, y, paint("#FFFFFF", alpha=a))
+                note_text(c, a, (ox + ln.x, y - ln.shaped.cap_height, ox + ln.x + ln.shaped.width, y))

@@ -23,6 +23,7 @@ import numpy as np
 
 from . import nodes as nodes_mod
 from . import tune as tune_mod
+from .checks import text_overlaps
 from .preview import Previewer
 
 UI = Path(__file__).with_name("studio_ui.html")
@@ -241,12 +242,18 @@ class Studio(Previewer):
             self.renderer.draw(f / comp.fps, f)
             E = nodes_mod.edits_of(comp)
             w, h = self.renderer.w, self.renderer.h
+            over: dict[str, list[str]] = {}
+            for a, b, _ in text_overlaps(E.seen):
+                over.setdefault(a, []).append(b)
+                over.setdefault(b, []).append(a)
             out = []
             for s in E.seen.values():
                 l, t, r, b = s.bounds
+                tb = s.text_box
                 out.append({"id": s.id, "label": s.label, "space": s.space, "span": s.span, "parent": s.parent,
                             "box": [l / w, t / h, r / w, b / h], "origin": [s.origin[0] / w, s.origin[1] / h],
-                            "props": s.props, "edits": E.of(s.id)})
+                            "props": s.props, "edits": E.of(s.id), "overlap": over.get(s.id, []),
+                            "tbox": [tb[0] / w, tb[1] / h, tb[2] / w, tb[3] / h] if tb else None})
         return out
 
     def run_review(self) -> bool:

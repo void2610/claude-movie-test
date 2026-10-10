@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import skia
 
-from .render import _pool, _render_one, load_project, make_audio, prepare
+from .render import _pool, _render_one, _text_overlaps_one, load_project, make_audio, prepare
 from .shots import Shot, ShotList
 from .text import text as draw_text
 
@@ -55,6 +55,32 @@ def _render(project, frames: list[int], scale: float, workers=None) -> dict[int,
     with _pool(project, scale, False, True, workers) as pool:
         return {f: np.frombuffer(b, np.uint8).reshape(h, w, 3)
                 for f, b in zip(frames, pool.imap(_render_one, frames, chunksize=2))}
+
+
+def text_overlap_findings(project, comp, workers=None) -> list:
+    """全コマで、別々の要素の文字が重なっている区間 (組ごと・続いた区間ごとに 1 件)。"""
+    from .checks import Finding
+    fps = comp.fps
+    print(f"review: checking text overlaps in {comp.nframes} frames...", flush=True)
+    with _pool(project, 0.25, False, False, workers) as pool:
+        per = list(pool.imap(_text_overlaps_one, range(comp.nframes), chunksize=8))
+    runs: dict[tuple[str, str], list[list]] = {}
+    for f, pairs in enumerate(per):
+        for a, b, share in pairs:
+            rs = runs.setdefault((a, b), [])
+            if rs and rs[-1][1] == f - 1:
+                rs[-1][1], rs[-1][2] = f, max(rs[-1][2], share)
+            else:
+                rs.append([f, f, share])
+    out = []
+    for (a, b), rs in runs.items():
+        for f0, f1, share in rs:
+            t0 = f0 / fps
+            waived = next((w.reason for w in comp.waivers if w.rule == "text-overlap" and w.times[0] <= t0 <= w.times[1]),
+                          None)
+            out.append(Finding("text-overlap", t0, f"「{a}」と「{b}」の文字が重なっている ({t0:.2f}〜{(f1 + 1) / fps:.2f}s、"
+                                                   f"小さい方の {share:.0%})", None, waived))
+    return sorted(out, key=lambda fd: fd.t)
 
 
 def _attack_offsets(wav: str, times: list[float], window: float = 0.06) -> list[tuple[float | None, float]]:
@@ -263,6 +289,7 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     print(f"review: checking {len(scan_frames)} frames at full size...", flush=True)
     full = _render(project, scan_frames, 1.0, workers)
     findings = _find(comp, full, check_frames, m, fps)
+    findings += text_overlap_findings(project, comp, workers)
     from .soundqa import check as sound_check, strip as sound_strip
     sq = sound_check(comp, wav, m.diff)
     findings += sq.findings

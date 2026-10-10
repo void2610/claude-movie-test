@@ -217,6 +217,10 @@ function pick(chain,mode){if(!chain.length)return null;if(mode==='deep')return c
   return mode==='in'?chain[Math.min(1,chain.length-1)]:chain[0]}
 function drawOV(){const dpr=devicePixelRatio||1,W=ov.clientWidth,H=ov.clientHeight;if(ov.width!==W*dpr||ov.height!==H*dpr){ov.width=W*dpr;ov.height=H*dpr}
   octx.setTransform(dpr,0,0,dpr,0,0);octx.clearRect(0,0,W,H);if(!I)return;const R=imgRect();
+  // 別々の要素の文字が重なるコマは赤で囲む (時刻をずらした結果の重なりに、調整の最中に気づけるように)
+  const ovl=NODES.filter(x=>x.overlap&&x.overlap.length&&x.tbox);
+  for(const x of ovl){const l=R.x+x.tbox[0]*R.w,t=R.y+x.tbox[1]*R.h;octx.setLineDash([5,3]);octx.strokeStyle='#ff4d4f';octx.lineWidth=1.5;octx.strokeRect(l,t,(x.tbox[2]-x.tbox[0])*R.w,(x.tbox[3]-x.tbox[1])*R.h);octx.setLineDash([])}
+  if(ovl.length){const x=ovl[0];tag(R.x+x.tbox[0]*R.w,R.y+x.tbox[1]*R.h-4,'文字が重なっている: '+ovl.map(o=>o.label).join(' / '),'#ff4d4f','#fff')}
   const n=selNode();
   // 選んだ要素の親の枠を薄く出して、今どの階層にいるかを見せる
   if(n&&n.parent){const p=NODES.find(x=>x.id===n.parent);if(p){const b=px(p,R);octx.setLineDash([2,4]);octx.strokeStyle='#4da3ff88';octx.lineWidth=1;octx.strokeRect(b.l,b.t,b.r-b.l,b.b-b.t);octx.setLineDash([])}}

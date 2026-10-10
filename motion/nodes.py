@@ -44,6 +44,8 @@ class Seen:
     span: tuple[float, float] | None = None
     space: str = "2d"
     parent: str | None = None
+    text: float = 0.0   # この要素が直接描いた文字の最大の不透明度 (0 なら文字を描いていない)
+    text_box: tuple[float, float, float, float] | None = None   # その文字の見えている範囲 (大文字の高さ・クリップ後)
 
 
 class Edits:
@@ -106,6 +108,8 @@ class Edits:
         if s.id in self.seen:
             a, b = self.seen[s.id].bounds, s.bounds
             s.bounds = (min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]))
+            s.text = max(s.text, self.seen[s.id].text)
+            s.text_box = _union(s.text_box, self.seen[s.id].text_box)
         self.seen[s.id] = s
 
 
@@ -126,12 +130,46 @@ class Node:
         self._e = edits
         self.t = edits.base_t(ctx.t) - edits.tr(id, "dt")
         self.props: dict[str, dict] = {}
+        self.text = 0.0
+        self.text_box: tuple[float, float, float, float] | None = None
 
     def prop(self, key: str, default: Any) -> Any:
         """スタジオから変えられる値。既定値の型で、文言・色・数値・真偽のどれかになる。"""
         v = self._e.prop(self.id, key, default)
         self.props[key] = {"type": _kind(default), "default": default, "value": v}
         return v
+
+
+# 描いている途中の要素。文字を描く関数は、どの要素の中で描かれたかを知らないのでここで引く
+_open: list[Node] = []
+
+
+def _union(a, b):
+    if a is None or b is None:
+        return a or b
+    return (min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]))
+
+
+def _clipped(c: skia.Canvas, r: skia.Rect) -> tuple[float, float, float, float] | None:
+    r = skia.Rect.MakeLTRB(r.left(), r.top(), r.right(), r.bottom())
+    if not r.intersect(skia.Rect.Make(c.getDeviceClipBounds())):
+        return None
+    return (r.left(), r.top(), r.right(), r.bottom())
+
+
+def note_text(c: skia.Canvas, alpha: float, rect: tuple[float, float, float, float]) -> None:
+    """描いている途中の要素が c に文字を描いたことを残す (review とスタジオが文字の重なりを見つけるため)。
+
+    rect は文字の範囲 (c の座標)。今の変換とクリップを当てて、要素の記録の座標で持つ。
+    """
+    if not _open or alpha <= 0:
+        return
+    box = _clipped(c, c.getTotalMatrix().mapRect(skia.Rect.MakeLTRB(*rect)))
+    if box is None:
+        return
+    n = _open[-1]
+    n.text = max(n.text, alpha)
+    n.text_box = _union(n.text_box, box)
 
 
 def props(ctx, id: str) -> Node:
@@ -159,9 +197,11 @@ def node(c: skia.Canvas, ctx, id: str, *, origin: tuple[float, float] = (0.0, 0.
     children: list[Seen] = []
     e._ids.append((id, n.t))
     e._rec.append(children)
+    _open.append(n)
     try:
         yield n
     finally:
+        _open.pop()
         e._rec.pop()
         e._ids.pop()
     pic = rec.finishRecordingAsPicture()
@@ -186,14 +226,18 @@ def node(c: skia.Canvas, ctx, id: str, *, origin: tuple[float, float] = (0.0, 0.
     if cull.width() > 0 and cull.height() > 0 and cull.width() < 1e5:
         r = m.mapRect(cull)
         org = m.mapXY(ox, oy)
+        tb = _clipped(c, m.mapRect(skia.Rect.MakeLTRB(*n.text_box))) if n.text_box else None
         e.emit(Seen(id, e.labels[id], (r.left(), r.top(), r.right(), r.bottom()), (org.x(), org.y()), n.props, span,
-                    parent=parent))
+                    parent=parent, text=n.text * op if tb else 0.0, text_box=tb))
     # 子の範囲は親の記録の中の座標なので、親を描いた変換で写してから上へ渡す
     for ch in children:
         r = m.mapRect(skia.Rect.MakeLTRB(*ch.bounds))
         org = m.mapXY(*ch.origin)
         ch.bounds = (r.left(), r.top(), r.right(), r.bottom())
         ch.origin = (org.x(), org.y())
+        if ch.text_box:
+            ch.text_box = _clipped(c, m.mapRect(skia.Rect.MakeLTRB(*ch.text_box)))
+            ch.text = ch.text if ch.text_box else 0.0
         e.emit(ch)
     c.restore()
 

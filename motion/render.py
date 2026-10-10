@@ -178,6 +178,15 @@ def _render_one(f: int) -> bytes:
     return _R.frame(f).tobytes()
 
 
+def _text_overlaps_one(f: int) -> list[tuple[str, str, float]]:
+    """f 番目のコマで、別々の要素の文字が重なっている組 (要素のラベル, 要素のラベル, 重なり)。"""
+    from .checks import text_overlaps
+    from .nodes import edits_of
+    _R.draw(f / _R.comp.fps, f)
+    e = edits_of(_R.comp)
+    return [(e.labels.get(a, a), e.labels.get(b, b), share) for a, b, share in text_overlaps(e.seen)]
+
+
 def _pool(project, scale, mb, post, workers):
     ctx = mp.get_context("spawn")
     # x264 のエンコードにも CPU が要るので、既定では 2 コア残す
