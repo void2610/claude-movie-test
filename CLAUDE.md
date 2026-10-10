@@ -31,6 +31,7 @@ uv run python -m motion review projects/demo            # 批評用シート + r
 uv run python -m motion variants projects/demo          # variants.json の全案の下書き → スタジオの「案」で並べて同時に再生して選ぶ
 uv run python -m motion sheet projects/demo             # コンタクトシート (build/demo/sheet.png)
 uv run python -m motion still projects/demo 3.5         # 1 フレームの PNG
+uv run python -m motion onion projects/demo 2.0 2.8     # 区間のコマを重ねて動きの経路と加減速を 1 枚で見る
 uv run python -m motion audio projects/demo             # 音だけ
 uv run python -m motion patches pads/                   # Surge XT のパッチ検索
 uv run python -m motion audition pads/ -n 8             # 候補を同じ和音で順に鳴らした build/audition.wav

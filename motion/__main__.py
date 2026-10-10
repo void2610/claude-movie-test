@@ -86,6 +86,14 @@ def main() -> None:
     au.add_argument("--notes", default="F3,G#3,C4")
     au.add_argument("-o", "--out", default="build/audition.wav")
 
+    on = sub.add_parser("onion", help="区間のコマを重ねて動きの経路と加減速を 1 枚で見る")
+    on.add_argument("project")
+    on.add_argument("t0", type=float)
+    on.add_argument("t1", type=float)
+    on.add_argument("-n", type=int, default=7)
+    on.add_argument("--scale", type=float, default=0.5)
+    on.add_argument("-o", "--out")
+
     vr = sub.add_parser("variants", help="variants.json の全案の下書きを書き出す (スタジオの「案」で見比べる)")
     vr.add_argument("project")
     vr.add_argument("--scale", type=float, default=0.5)
@@ -104,7 +112,7 @@ def main() -> None:
     fx.add_argument("--credit", default="", help="add: 出典とライセンス")
     fx.add_argument("-o", "--out", default="build/sfx.png", help="波形とスペクトログラムの画像")
 
-    for p_ in (r, s, st, a, pv, rv):
+    for p_ in (r, s, st, a, pv, rv, on):
         p_.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
                         help="build() に渡すパラメータ (例: --set aspect=9:16)")
     args = ap.parse_args()
@@ -117,6 +125,10 @@ def main() -> None:
             except json.JSONDecodeError:
                 params[k] = v
         os.environ["MOTION_PARAMS"] = json.dumps(params)
+    if args.cmd == "onion":
+        from .onion import onion
+        print(f"-> {onion(args.project, args.t0, args.t1, args.n, args.scale, args.out)}")
+        return
     if args.cmd == "variants":
         from .variants import render_all
         comp = load_project(args.project)

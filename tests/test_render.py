@@ -53,3 +53,12 @@ def test_scaled_render_keeps_aspect(renderer):
     comp = renderer.comp
     small = FrameRenderer(comp, scale=0.5).frame(10)
     assert small.shape == (comp.height // 2, comp.width // 2, 3)
+
+
+def test_onion_stacks_the_moving_parts(tmp_path):
+    import cv2
+
+    from motion.onion import onion
+    out = onion(Path(__file__).parent / "fixtures" / "mini", 0.0, 1.0, n=5, scale=0.25, out=tmp_path / "o.png")
+    img = cv2.imread(str(out))
+    assert img is not None and img.shape[0] > 44
