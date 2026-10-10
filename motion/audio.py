@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import os
 import re
@@ -265,6 +266,8 @@ class Mix:
         self.chains: dict[str, list] = {}
         self.gains: dict[str, float] = {}
         self.ducks: dict[str, tuple] = {}
+        # 置いた効果音の記録。review が絵との一致・聞こえ方を検査するのに使う
+        self.events: list[dict] = []
 
     def bus(self, name: str) -> np.ndarray:
         if name not in self.buses:
@@ -296,9 +299,12 @@ class Mix:
         if m > 0:
             self.bus(bus)[:, i0:i0 + m] += buf[:, j0:j0 + m]
 
-    def sfx(self, sound, t: float, gain_db: float = 0.0, pan: float = 0.0, bus: str = "sfx") -> None:
-        """sfx.Sound を、山 (peak) がちょうど時刻 t に来るように置く。"""
+    def sfx(self, sound, t: float, gain_db: float = 0.0, pan: float = 0.0, bus: str = "sfx", hero: bool = False) -> None:
+        """sfx.Sound を、山 (peak) がちょうど時刻 t に来るように置く。hero=True は見せ場の音 (検査が厳しくなる)。"""
         self.place(sound.buf, t - sound.peak, gain_db, pan, bus)
+        self.events.append(dict(t=round(float(t), 4), start=round(float(t - sound.peak), 4),
+                                dur=round(sound.duration, 4), origin=getattr(sound, "origin", "synth"), bus=bus,
+                                hero=hero, gain_db=gain_db))
 
     def file(self, path: str | Path, t: float = 0.0, offset: float = 0.0, length: float | None = None,
              gain_db: float = 0.0, pan: float = 0.0, bus: str = "media") -> None:
@@ -408,39 +414,57 @@ class Mix:
             env[seg] = np.minimum(env[seg], 1 - depth * attack * np.exp(-dt / release * 3))
         return env
 
-    def mixdown(self) -> np.ndarray:
-        out = np.zeros((2, self.n), np.float32)
+    def _processed(self) -> dict[str, np.ndarray]:
+        out = {}
         for name, buf in self.buses.items():
             y = buf
             if name in self.chains:
                 y = pb.Pedalboard(self.chains[name])(y, self.sr)
             if name in self.ducks:
                 y = y * self._duck_env(*self.ducks[name])
-            out[:, :y.shape[1]] += y[:, :self.n] * db(self.gains.get(name, 0.0))
+            z = np.zeros((2, self.n), np.float32)
+            z[:, :min(y.shape[1], self.n)] = y[:, :self.n] * db(self.gains.get(name, 0.0))
+            out[name] = z
         return out
 
-    def render(self, path: str | Path, lufs: float = -14.0, ceiling_db: float = -1.0,
+    def mixdown(self) -> np.ndarray:
+        return sum(self._processed().values(), np.zeros((2, self.n), np.float32))
+
+    def render(self, path: str | Path, lufs: float = -14.0, ceiling_db: float = -2.0,
                master: list | None = None, loop: bool = False) -> str:
         """ミックスダウンし、ラウドネスを lufs に揃え、リミッターをかけて書き出す。
 
         loop=True なら、尺を超えた残響を頭に足し込み、末尾のフェードもかけない (継ぎ目なく繰り返せる)。
+        天井の既定 -2dB は、AAC にした後の真のピークを -1dBTP 以下に保つため。
+        横に <名前>.sfx.wav (効果音のバス) と <名前>.bed.wav (それ以外) と <名前>.mix.json (効果音の記録) を書く。
         """
-        src = self.mixdown()
+        procs = self._processed()
+        src = sum(procs.values(), np.zeros((2, self.n), np.float32))
         if master:
             src = pb.Pedalboard(master)(src, self.sr)
+        sfx_buses = sorted({e["bus"] for e in self.events})
+        stems = {"sfx": sum((procs[b] for b in sfx_buses if b in procs), np.zeros((2, self.n), np.float32)),
+                 "bed": sum((v for k, v in procs.items() if k not in sfx_buses), np.zeros((2, self.n), np.float32))}
         end = int(self.duration * self.sr)
-        tail = src[:, end:]
-        src = src[:, :end].copy()
-        if loop:
-            for k in range(0, tail.shape[1], end):
-                seg = tail[:, k:k + end]
-                src[:, :seg.shape[1]] += seg
+
+        def fold(x):
+            tail = x[:, end:]
+            x = x[:, :end].copy()
+            if loop:
+                for k in range(0, tail.shape[1], end):
+                    seg = tail[:, k:k + end]
+                    x[:, :seg.shape[1]] += seg
+            return x
+
+        src = fold(src)
+        stems = {k: fold(v) for k, v in stems.items()}
         meter = pyloudnorm.Meter(self.sr)
         # リミッターでラウドネスが下がる分を、計り直して詰めていく
         g = 1.0
         y = src
         for _ in range(4):
             y = limit(src * g, self.sr, ceiling_db)
+            gy = g
             cur = meter.integrated_loudness(y.T.astype(np.float64))
             if not np.isfinite(cur) or abs(cur - lufs) < 0.1:
                 break
@@ -451,4 +475,11 @@ class Mix:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with AudioFile(str(path), "w", self.sr, num_channels=2) as f:
             f.write(y)
+        base = Path(path).with_suffix("")
+        for k, v in stems.items():
+            with AudioFile(f"{base}.{k}.wav", "w", self.sr, num_channels=2) as f:
+                f.write((v * gy).astype(np.float32))
+        report = dict(duration=self.duration, lufs=lufs, ceiling_db=ceiling_db, gain_db=round(20 * math.log10(gy), 2),
+                      loop=loop, sfx_buses=sfx_buses, events=self.events)
+        Path(f"{base}.mix.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
         return str(path)

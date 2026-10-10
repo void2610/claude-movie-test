@@ -145,6 +145,32 @@ def paint_scene(c: skia.Canvas, s: Scene, t: float, frame: float, comp: Composit
 
 PostFx = Callable[[Any, Ctx], Any]
 
+CUE_KINDS = ("cut", "move", "land", "appear")
+
+
+class Cue(float):
+    """秒としてそのまま使えるキュー。kind を付けると、review が書き出した絵の動きと照らし合わせる。
+
+    cut は画面全体が変わるコマ、move は動きが最も速いコマ、land は動きが止まるコマ、appear は要素が出るコマ。
+    hero は約 4 秒に 1 つの見せ場 (重ねた打撃音を置き、検査も厳しくする)。
+    """
+    kind: str | None
+    hero: bool
+    name: str
+
+    def __new__(cls, t: float, kind: str | None = None, hero: bool = False, name: str = ""):
+        if kind not in (None, *CUE_KINDS):
+            raise ValueError(f"kind は {CUE_KINDS} のどれか: {kind}")
+        obj = super().__new__(cls, t)
+        obj.kind, obj.hero, obj.name = kind, hero, name
+        return obj
+
+    def __reduce__(self):
+        return (Cue, (float(self), self.kind, self.hero, self.name))
+
+    def __repr__(self) -> str:
+        return f"Cue({float(self):.3f}, {self.kind!r}{', hero=True' if self.hero else ''})"
+
 
 @dataclass
 class Composition:
@@ -164,8 +190,10 @@ class Composition:
     shutter: float = 0.5
     # サブフレームの平均と光学系のポスト処理をリニア空間で行う (明るい物のブラーや bloom が濁らない)
     linear: bool = True
-    # 映像と音で共有する衝撃のタイミング (秒)
+    # 映像と音で共有する衝撃のタイミング (秒か Cue)
     cues: list[float] = field(default_factory=list)
+    # 意図した無音の区間 [(開始, 終了)]。review の無音の検査から外す
+    silence_ok: list = field(default_factory=list)
     # comp を受け取り wav のパスを返す関数
     audio: Callable[[Composition], str] | None = None
     # レンダリング前にメインプロセスで一度だけ走らせる準備 (Blender のプレート生成等)

@@ -43,7 +43,7 @@ uv run pytest                                           # テスト (描画を�
 
 | モジュール | 役割 |
 |---|---|
-| `scene` | `Composition` (解像度・fps・BPM・シーン・ポスト・カメラ・キュー・音・`linear`)、`Scene` / `@scene(start, end)` (`fixed=True` でカメラ無視)、`Ctx` (t, lt, p, tl, W, H, CX, CY) |
+| `scene` | `Composition` (解像度・fps・BPM・シーン・ポスト・カメラ・キュー・音・`linear`・`silence_ok`)、`Scene` / `@scene(start, end)` (`fixed=True` でカメラ無視)、`Ctx` (t, lt, p, tl, W, H, CX, CY)、`Cue(t, kind, hero)` (秒として使えるキュー。kind は cut / move / land / appear) |
 | `transition` | `Transition(a, b, at, dur, kind)` (cut / crossfade / push / wipe / iris / slices / zoom / tear)、`mask` `matte` `montage` |
 | `timeline` | `beat(n)` `bar(n)` `step(n, div)` `beat_at(t)` `pulse(t)` |
 | `shots` | `ShotList.from_md("shotlist.md")` を `Composition(shots=...)` に渡すと、`shots["proof"].start` のように時刻を引け、`review` がショットごとにコマを選ぶ |
@@ -61,6 +61,7 @@ uv run pytest                                           # テスト (描画を�
 | `media` | `Image` / `Video` (動画は `comp.prepare.append(clip.prepare)` で作品の fps にフレームを書き出す)、`fit="cover" / "contain"` |
 | `audio` | `Mix`: `hit` (サンプル)、`tone` (内蔵シンセ)、`instrument` (Surge XT 等の VST3。`patch="Pads/MKS-70 Warm Pad"` でパッチ指定)、`file` (音声・動画の音)、`clip` (Clip の音を速度変化に追従させる。フリーズ中は無音)、`sfx`、`fx` `duck`、`render` で LUFS を揃えて wav 出力 |
 | `sfxlib` | 録音の効果音 1,139 個 (CC0、19 種)。`sfxlib.sound("hit/<id>")` を `mx.sfx(sound, t)` で山を t に合わせて置く。打撃・クリック・風切りはここから選び、合成しない |
+| `soundqa` | review の音の検査: Cue の kind と書き出した絵の動き、効果音の置き場所、自分の帯域で浮くか、見せ場、ラウドネス・真のピーク・無音。review.md に「耳で確かめる時刻」を出す |
 | `sfx` | 合成の効果音 (`whoosh` `riser` `impact` `click` `glitch` `reverse_swell`)。録音が無い音の試作用 |
 | `analysis` | `analyze(path)` で BPM・拍・小節頭・オンセット。`info.timeline()` で Timeline にできる。小節頭がずれたら `shift_downbeats(n)` |
 | `cache` | `cached(comp, name, fn, *deps)` で重い前計算を build/<作品>/cache に保存し全ワーカーで共有 |

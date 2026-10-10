@@ -37,6 +37,7 @@ class Metrics:
     sync: list[tuple[str, float, float, bool]]   # (種類, 時刻, 8 分のグリッドからのずれ ms, 音の立ち上がりがあるか)
     edge_ink: dict[int, float]      # フレーム → 端 5% に描かれている量 (0〜1)
     loop_diff: float | None         # 最初と最後のコマの差 (0〜255)
+    diff: np.ndarray | None = None  # フレームごとの前のコマとの差 (音の検査で絵の動きとして使う)
 
 
 def _default_shots(comp) -> ShotList:
@@ -145,7 +146,7 @@ def measure(project, comp, shots: ShotList, scale: float = 0.08, wav: str | None
         a, b = r.frame(0), r.frame(comp.nframes - 1)
         comp.duration -= 1 / comp.fps
         loop_diff = float(np.abs(a.astype(int) - b.astype(int)).mean())
-    return Metrics(rest_ratio, contrast, pops, pace, changes, sync, edge, loop_diff)
+    return Metrics(rest_ratio, contrast, pops, pace, changes, sync, edge, loop_diff, full)
 
 
 @dataclass
@@ -262,6 +263,9 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     print(f"review: checking {len(scan_frames)} frames at full size...", flush=True)
     full = _render(project, scan_frames, 1.0, workers)
     findings = _find(comp, full, check_frames, m, fps)
+    from .soundqa import check as sound_check, strip as sound_strip
+    sq = sound_check(comp, wav, m.diff)
+    findings += sq.findings
     offs = [-0.25, -0.1, -0.034, 0.0, 0.034, 0.1, 0.25]
     cut_frames = {c: [f_of(c + o) for o in offs] for c in shots.cuts}
     want = [f for v in shot_frames.values() for f in v] + [f for v in cut_frames.values() for f in v]
@@ -279,7 +283,7 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     err_h = (len(errors) * 250 + 60) if errors else 60
     detail_h = len(shots) * 360 + 60
     H = (120 + err_h + len(shots) * row_h + len(cut_frames) * cut_h + 260 + max(i.shape[0] for i in phone.values())
-         + 120 + detail_h)
+         + 120 + detail_h + 430)
     sh = _Sheet(W, H)
     y = 40
     sh.text(f"{comp.name}  レビュー  {datetime.datetime.now():%Y-%m-%d %H:%M}", 24, y, 26)
@@ -296,8 +300,8 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
             img = full[min(full, key=lambda f: abs(f - fd.t * fps))]
             x, yy, cw, ch = fd.crop or (0, 0, img.shape[1], img.shape[0])
             crop = img[yy:yy + ch, x:x + cw]
-            hh = sh.image(crop, 24, y + 26, min(cw, 420) if fd.crop else 360)
-            y += max(hh, 200) + 44
+            hh = sh.image(crop, 24, y + 26, min(cw, 420) if fd.crop else 360) if not fd.rule.startswith("sound") else 0
+            y += (max(hh, 200) + 44) if hh else 30
     else:
         sh.text("エラー 0 件", 24, y + 10, 20, OK)
         y += 50
@@ -357,6 +361,9 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
         sh.c.drawCircle(tx(t), gy + gh + 14, 3, skia.Paint(Color=skia.Color(74, 222, 128), AntiAlias=True))
     sh.text("白: カット  橙: キュー  緑の点: 画面の大きな変化", gx, gy + gh + 34, 12, DIM)
     y = gy + gh + 60
+    sh.text("音の検査 (効果音・見せ場と、絵の動き)", 24, y + 10, 18)
+    sh.image(sound_strip(sq, wav, comp, gw), gx, y + 30)
+    y += 430
 
     sh.text("スマホ幅 (長辺 360px) での見え方", 24, y + 10, 18)
     x = 24
@@ -397,6 +404,16 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
                  if edge else "- 画面の端 5% に要素があるコマ: なし")
     if m.loop_diff is not None:
         lines.append(f"- ループ: 最初と最後のコマの差 {m.loop_diff:.1f} ({'OK' if m.loop_diff < 3 else '要修正'})")
+    lines += ["", "## 音の検査", ""]
+    if sq.events:
+        heroes = sum(e["hero"] for e in sq.events)
+        synth = sum(e["origin"] == "synth" for e in sq.events)
+        lines.append(f"- 効果音 {len(sq.events)} 個 (見せ場 {heroes}、録音 {len(sq.events) - synth}、合成 {synth})")
+    lines += [f"- 警告 {t:.2f}s `{r}`: {d}" for t, r, d in sq.warnings] or ["- 警告なし"]
+    lines += [f"- 絵と一致 {ln}" for ln in sq.passed]
+    if sq.listen:
+        lines += ["", "## 耳で確かめる時刻", "", "数値では合格でも、ここだけは人間が聞いて確かめる。", ""]
+        lines += [f"- {t:.2f}s {why}" for t, why in sq.listen]
     lines += ["", "## チェック", "",
               "- [ ] 最初の 2 秒に、見続ける理由になる絵がある",
               "- [ ] スマホ幅で文字が読める",
