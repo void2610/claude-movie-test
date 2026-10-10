@@ -158,6 +158,10 @@ def limit(y: np.ndarray, sr: int, ceiling_db: float = -1.0, lookahead: float = 0
     return np.clip(y * gain.astype(np.float32), -c, c)
 
 
+INSTRUMENT_CACHE = Path(os.environ.get("MOTION_INSTRUMENT_CACHE",
+                                       Path(__file__).resolve().parents[1] / "build" / "cache" / "instrument"))
+
+
 @lru_cache(maxsize=8)
 def _plugin(path: str):
     return pb.load_plugin(path)
@@ -544,11 +548,6 @@ class Mix:
 
         patch は Surge XT のパッチ名 ("MKS-70 Warm Pad" 等) か .fxp のパス。
         """
-        p = _plugin(plugin)
-        if patch is not None:
-            surge_load(p, patch)
-        for k, v in (params or {}).items():
-            setattr(p, k, v)
         msgs = []
         for note in notes:
             t, dur, pitch = note[:3]
@@ -557,7 +556,24 @@ class Mix:
             msgs.append((bytes([0x90, m, vel]), float(t)))
             msgs.append((bytes([0x80, m, 0]), float(t + dur)))
         msgs.sort(key=lambda x: x[1])
-        y = p(msgs, duration=self.n / self.sr, sample_rate=self.sr, num_channels=2, reset=True)
+        stamp = Path(patch).stat().st_mtime if patch is not None and Path(patch).exists() else None
+        key = hashlib.sha1(repr((plugin, str(patch), stamp, sorted((params or {}).items()), msgs, self.n,
+                                 self.sr)).encode()).hexdigest()[:16]
+        # Surge XT は鳴らすたびに位相などが揺れ、音楽に合わせて決める効果音の音量まで毎回変わってしまう
+        path = INSTRUMENT_CACHE / f"{key}.npy"
+        if path.exists():
+            y = np.load(path)
+        else:
+            p = _plugin(plugin)
+            if patch is not None:
+                surge_load(p, patch)
+            for k, v in (params or {}).items():
+                setattr(p, k, v)
+            y = p(msgs, duration=self.n / self.sr, sample_rate=self.sr, num_channels=2, reset=True)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(f".{os.getpid()}.tmp.npy")
+            np.save(tmp, y)
+            os.replace(tmp, path)
         self.bus(bus)[:, :y.shape[1]] += y[:, :self.n] * db(gain_db)
 
     def fx(self, bus: str, *plugins) -> None:

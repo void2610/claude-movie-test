@@ -54,6 +54,18 @@ def test_surge_patch_changes_sound():
     assert abs(centroid(a) - centroid(b)) > 100
 
 
+def test_instrument_sounds_the_same_every_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(audio, "INSTRUMENT_CACHE", tmp_path)
+    notes = [(0.0, 0.8, "A2", 100), (0.4, 0.8, "E3", 90)]
+    outs = []
+    for _ in range(2):
+        mx = audio.Mix(1.0, tail=0.2)
+        mx.instrument(notes, patch="Basses/Bass 1", bus="bass")
+        outs.append(mx.buses["bass"].copy())
+    assert np.abs(outs[0]).max() > 0.01
+    assert np.array_equal(outs[0], outs[1])
+
+
 def test_loop_render_wraps_tail_to_head(tmp_path):
     mx = audio.Mix(1.0, tail=1.0)
     mx.tone(0.8, 0.5, "A3", wave="sine", env=(0.001, 0.1, 1.0, 0.3), gain_db=-6)
