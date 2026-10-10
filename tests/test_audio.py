@@ -100,7 +100,7 @@ def test_hero_layers_stops_the_music_and_builds(tmp_path):
     from motion.soundqa import check
     mx = _bed_mix()
     ev = mx.hero(2.0, hit=sfx.impact(0.8), boom=sfx.impact(1.2, f_start=90, f_end=30, seed=5),
-                 riser=sfx.riser(1.5))
+                 riser=sfx.riser(1.5), stop_before=0.4, build=2.0)
     path = mx.render(tmp_path / "h.wav", lufs=-14)
     boom = next(e for e in mx.events if e["t"] == 2.0 and not e["hero"] and e["dur"] > 1.0)
     assert boom["gain_db"] == round(ev["gain_db"] - 4, 2)

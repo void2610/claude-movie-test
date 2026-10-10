@@ -173,6 +173,19 @@ def check(comp, wav: str | Path | None, diff: np.ndarray) -> SoundQA:
 
     if not report:
         return q
+    # 見せ場の溜め: 音楽を止めた隙間はライザーが埋める。曲の普段の音量より 18dB 以上静かなら途切れて聞こえる
+    usual = 20 * np.log10(np.median(rms) + 1e-12)
+    for s in report.get("stops", []):
+        if not s.get("fill", True):
+            continue
+        i0, i1 = int(np.ceil((s["t"] - s["dur"]) / 0.05)), int((s["t"] - 0.02) / 0.05)
+        if i1 <= i0:
+            continue
+        # 打撃は山の少し手前から鳴り始めるので、平均ではなく中央値で隙間の音量を見る
+        gap = 20 * np.log10(np.median(rms[i0:i1]) + 1e-12)
+        if gap < usual - 18:
+            err("sound: 見せ場の溜め", i0 * 0.05,
+                f"{i0 * 0.05:.2f}〜{s['t']:.2f}s が曲の普段より {usual - gap:.0f}dB 静か (止めた音楽の隙間をライザーが埋めていない)")
     sfx = load(f"{base}.sfx.wav").astype(np.float64).mean(axis=0)
     bed2 = load(f"{base}.bed.wav").astype(np.float64)
     bed = bed2.mean(axis=0)

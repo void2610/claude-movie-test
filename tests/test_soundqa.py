@@ -58,3 +58,22 @@ def test_unplanned_silence_is_an_error_unless_declared(tmp_path):
     assert any(f.rule == "sound: 無音" for f in check(comp, wav, np.zeros(90)).findings)
     comp.silence_ok = [(1.0, 3.0)]
     assert not any(f.rule == "sound: 無音" for f in check(comp, wav, np.zeros(90)).findings)
+
+
+def test_hero_gap_must_be_filled_by_the_riser(tmp_path):
+    def mix(riser):
+        mx = audio.Mix(3.0, tail=0.5)
+        for i in range(12):
+            mx.tone(i * 0.25, 0.24, "A2", wave="saw", gain_db=-6, bus="music")
+        mx.hero(2.0, hit=sfx.impact(0.8), boom=None, riser=riser, stop_before=0.4, build=0.8)
+        return mx.render(tmp_path / f"{len(riser.buf[0])}.wav", lufs=-14)
+
+    comp = Composition(duration=3.0, fps=30, cues=[Cue(2.0, hero=True)])
+    # 山の 20ms 前まで鳴らないライザー (短い逆再生) では、音楽を止めた 0.4 秒が途切れて聞こえる
+    n = int(0.6 * 48000)
+    spike = np.zeros((2, n), np.float32)
+    spike[:, -960:] = np.random.default_rng(0).normal(0, 0.3, (2, 960))
+    q = check(comp, mix(sfx.Sound(spike, (n - 1) / 48000)), np.zeros(90))
+    assert any(f.rule == "sound: 見せ場の溜め" for f in q.findings)
+    q = check(comp, mix(sfx.riser(1.5)), np.zeros(90))
+    assert not any(f.rule == "sound: 見せ場の溜め" for f in q.findings)
