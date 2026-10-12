@@ -88,3 +88,17 @@ def test_text_findings_group_runs_and_point_to_code(tmp_path):
     assert by["text-overlap"].waived is None and by["text-cut"].waived is None
     # 文字の大きさはデザインの判断なので注意に留め、重なりと縁での見切れだけをエラーにする
     assert by["text-small"].note and not by["text-overlap"].note and not by["text-cut"].note
+
+
+def test_pixel_edge_clip_is_only_a_note(tmp_path):
+    import numpy as np
+
+    from motion import Composition
+    from motion.review import Metrics, _find
+    comp = Composition(width=200, height=100, fps=10, duration=1)
+    img = np.zeros((100, 200, 3), np.uint8)
+    img[30:70, :20] = 255                       # 左の縁で切れた塊 (画面いっぱいの素材と区別できない)
+    m = Metrics(0.5, 0.2, [], None, [], [], {}, None)
+    fds = [fd for fd in _find(comp, {0: img}, {}, m, 10) if fd.rule == "edge-clip"]
+    assert fds and all(fd.note for fd in fds)
+

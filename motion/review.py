@@ -302,8 +302,10 @@ def _find(comp, full: dict[int, np.ndarray], check_frames: dict[int, float], m: 
             else:
                 y0 = 0 if side == "top" else h - 160
                 crop = (max(start - 40, 0), y0, min(length + 80, 420), 160)
+            # 画素だけでは画面いっぱいに敷いた背景や素材と区別できない (合意済みの作品で誤って失敗した) ので注意に留める。
+            # 文字が縁で切れたままなのは text-cut がエラーにする
             out.append(Finding("edge-clip", t, f"{side} の縁で要素が切れている ({length}px)", crop,
-                               waive("edge-clip", t, side)))
+                               waive("edge-clip", t, side), note=True))
     for chk in comp.checks:
         for t in chk.times:
             f = min(max(int(round(t * fps)), 0), comp.nframes - 1)
