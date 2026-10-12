@@ -40,3 +40,44 @@ def test_scaffold_renders(tmp_path):
     assert (comp.width, comp.height) == (1080, 1080)
     assert len(comp.shots) == 5 and comp.duration == 16
     assert FrameRenderer(comp, 0.2).frame(60).mean() > 5
+
+
+TEXT_ISSUES = '''
+from motion import Composition, scene, text
+from motion.nodes import node
+
+
+def build():
+    comp = Composition(width=640, height=360, fps=20, duration=2.0, background="#000000", linear=False)
+
+    @scene(0, 2.0)
+    def s(c, ctx):
+        with node(c, ctx, "title", origin=(40, 120)) as n:
+            text.text(n.c, "TITLE", 40, 120, size=80)
+        with node(c, ctx, "over", origin=(60, 120)) as n:
+            if 0.5 <= n.t < 1.0:                       # 0.5 秒だけ見出しに重なる
+                text.text(n.c, "OVER", 60, 120, size=80)
+        with node(c, ctx, "tiny", origin=(40, 300)) as n:
+            text.text(n.c, "tiny caption", 40, 300, size=14)
+        with node(c, ctx, "slide", origin=(300, 200)) as n:
+            x = 300 if n.t >= 1.0 else 700 - 400 * n.t       # 1 秒かけて画面の外から滑り込み、中で止まる
+            text.text(n.c, "SLIDE IN", x, 200, size=40)
+        with node(c, ctx, "edge", origin=(560, 250)) as n:
+            if n.t >= 1.2:                                     # 縁で切れたまま止まる
+                text.text(n.c, "EDGE CUT", 560, 250, size=40)
+
+    comp.add(s)
+    return comp
+'''
+
+
+def test_text_findings_group_runs_and_point_to_code(tmp_path):
+    from motion.render import load_project
+    from motion.review import text_findings
+    (tmp_path / "project.py").write_text(TEXT_ISSUES, encoding="utf-8")
+    fds = text_findings(tmp_path, load_project(tmp_path), workers=2)
+    by = {fd.rule: fd for fd in fds}
+    assert sorted(by) == ["text-cut", "text-overlap", "text-small"] and len(fds) == 3
+    assert by["text-overlap"].t == pytest.approx(0.5) and "0.50〜1.00s" in by["text-overlap"].detail
+    assert by["text-cut"].t == pytest.approx(1.25) and "「edge」" in by["text-cut"].detail   # 滑り込みの途中は数えない
+    assert all(fd.boxes and fd.frame is not None and "project.py:" in fd.where for fd in fds)

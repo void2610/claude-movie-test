@@ -16,7 +16,8 @@ from pathlib import Path
 import numpy as np
 import skia
 
-from .render import _pool, _render_one, _text_overlaps_one, load_project, make_audio, prepare
+from .checks import phone_scale
+from .render import _pool, _render_one, _text_facts_one, load_project, make_audio, prepare
 from .shots import Shot, ShotList
 from .text import text as draw_text
 
@@ -57,29 +58,87 @@ def _render(project, frames: list[int], scale: float, workers=None) -> dict[int,
                 for f, b in zip(frames, pool.imap(_render_one, frames, chunksize=2))}
 
 
-def text_overlap_findings(project, comp, workers=None) -> list:
-    """全コマで、別々の要素の文字が重なっている区間 (組ごと・続いた区間ごとに 1 件)。"""
-    from .checks import Finding
+def text_findings(project, comp, workers=None) -> list:
+    """全コマの文字の検査: 別々の要素の文字の重なり、スマホ幅で読めない大きさ、画面の縁での見切れ。
+
+    重なりと見切れは続いた区間ごとに 1 件、大きさは要素ごとに一番大きく見えるコマで 1 件にする。
+    """
+    from .checks import CUT_MIN_SECONDS, CUT_STILL_PX, MIN_PHONE_CAP, Finding
     fps = comp.fps
-    print(f"review: checking text overlaps in {comp.nframes} frames...", flush=True)
+    print(f"review: checking text in {comp.nframes} frames...", flush=True)
     with _pool(project, 0.25, False, False, workers) as pool:
-        per = list(pool.imap(_text_overlaps_one, range(comp.nframes), chunksize=8))
-    runs: dict[tuple[str, str], list[list]] = {}
-    for f, pairs in enumerate(per):
-        for a, b, share in pairs:
-            rs = runs.setdefault((a, b), [])
-            if rs and rs[-1][1] == f - 1:
-                rs[-1][1], rs[-1][2] = f, max(rs[-1][2], share)
+        per = list(pool.imap(_text_facts_one, range(comp.nframes), chunksize=8))
+    names: dict[str, tuple[str, str]] = {}
+    for facts in per:
+        names.update(facts["names"])
+
+    def label(i, f=None):
+        # 中身が変わる文字 (時刻表示など) は、指摘したコマでの文字列で呼ぶ
+        got = per[f]["names"].get(i) if f is not None else None
+        return (got or names.get(i, (i, "")))[0]
+
+    def where(*ids):
+        return " / ".join(w for w in dict.fromkeys(names.get(i, ("", ""))[1] for i in ids) if w)
+
+    def waived(rule, t):
+        return next((w.reason for w in comp.waivers if w.rule == rule and w.times[0] <= t <= w.times[1]), None)
+
+    def runs(hits: dict[int, tuple]) -> list[list[int]]:
+        out: list[list[int]] = []
+        for f in sorted(hits):
+            if out and out[-1][-1] == f - 1:
+                out[-1].append(f)
             else:
-                rs.append([f, f, share])
+                out.append([f])
+        return out
+
+    over: dict[tuple[str, str], dict[int, tuple]] = {}
+    cut: dict[str, dict[int, tuple]] = {}
+    best: dict[str, tuple[float, int, tuple]] = {}
+    for f, facts in enumerate(per):
+        for a, b, share, ba, bb in facts["over"]:
+            over.setdefault((a, b), {})[f] = (share, ba, bb)
+        for i, v, raw in facts["cut"]:
+            cut.setdefault(i, {})[f] = (v, raw)
+        for i, cap, box in facts["size"]:
+            # 同じ大きさなら後のコマ (タイプライターや数え上げは最後に全部の文字が出ている)
+            if i not in best or cap >= best[i][0]:
+                best[i] = (cap, f, box)
+
     out = []
-    for (a, b), rs in runs.items():
-        for f0, f1, share in rs:
-            t0 = f0 / fps
-            waived = next((w.reason for w in comp.waivers if w.rule == "text-overlap" and w.times[0] <= t0 <= w.times[1]),
-                          None)
-            out.append(Finding("text-overlap", t0, f"「{a}」と「{b}」の文字が重なっている ({t0:.2f}〜{(f1 + 1) / fps:.2f}s、"
-                                                   f"小さい方の {share:.0%})", None, waived))
+    for (a, b), hits in over.items():
+        for fs in runs(hits):
+            f = max(fs, key=lambda x: hits[x][0])
+            share, ba, bb = hits[f]
+            t0 = fs[0] / fps
+            out.append(Finding("text-overlap", t0, f"「{label(a, f)}」と「{label(b, f)}」の文字が重なっている "
+                                                   f"({t0:.2f}〜{(fs[-1] + 1) / fps:.2f}s、小さい方の {share:.0%})",
+                               None, waived("text-overlap", t0), f, [ba, bb], where(a, b)))
+    phone = phone_scale(comp.width, comp.height)
+    # 同じコードの行から描いた要素 (1 語ずつ描いたコード、同じ部品のカード) はまとめて 1 件にする
+    small: dict[str, list[str]] = {}
+    for i, (cap, _, _) in best.items():
+        if cap * phone < MIN_PHONE_CAP:
+            small.setdefault(where(i) or i, []).append(i)
+    for ids in small.values():
+        i = min(ids, key=lambda x: best[x][0])
+        cap, f, box = best[i]
+        t = f / fps
+        more = f"ほか {len(ids) - 1} 個" if len(ids) > 1 else ""
+        out.append(Finding("text-small", t, f"「{label(i, f)}」{more}の文字がスマホ (縦 360×780) で大文字の高さ "
+                                            f"{cap * phone:.1f}px ({MIN_PHONE_CAP:.0f}px 以上。等倍では {cap:.0f}px)",
+                           None, waived("text-small", t), f, [best[x][2] for x in ids if best[x][1] == f], where(i)))
+    for i, hits in cut.items():
+        still = {f: x for f, x in hits.items()
+                 if f - 1 in hits and max(abs(a - b) for a, b in zip(x[1], hits[f - 1][1])) < CUT_STILL_PX}
+        for fs in runs(still):
+            if len(fs) < round(CUT_MIN_SECONDS * fps):
+                continue
+            t0 = fs[0] / fps
+            f = fs[len(fs) // 2]
+            out.append(Finding("text-cut", t0, f"「{label(i, f)}」の文字が画面の縁で切れている "
+                                               f"({t0:.2f}〜{(fs[-1] + 1) / fps:.2f}s)",
+                               None, waived("text-cut", t0), f, [still[f][0]], where(i)))
     return sorted(out, key=lambda fd: fd.t)
 
 
@@ -282,14 +341,15 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     shot_frames = {s.name: [f_of(s.start + min(0.15, s.dur * 0.1)), f_of(s.at(0.5)),
                             f_of(s.end - min(0.15, s.dur * 0.1))] for s in shots}
 
+    texts = text_findings(project, comp, workers)
     # 縮小画像では細い線の色や文字の欠けが見えないので、検査は等倍で行う
     check_frames = {f_of(t): t for chk in comp.checks for t in chk.times}
     scan_frames = sorted(set([f for v in shot_frames.values() for f in v] + list(range(0, comp.nframes, int(fps / 4)))
-                             + list(check_frames)))
+                             + list(check_frames) + [fd.frame for fd in texts]))
     print(f"review: checking {len(scan_frames)} frames at full size...", flush=True)
     full = _render(project, scan_frames, 1.0, workers)
     findings = _find(comp, full, check_frames, m, fps)
-    findings += text_overlap_findings(project, comp, workers)
+    findings += texts
     from .soundqa import check as sound_check, strip as sound_strip
     sq = sound_check(comp, wav, m.diff)
     findings += sq.findings
@@ -299,7 +359,7 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     want += [0, comp.nframes - 1]
     print(f"review: rendering {len(set(want))} frames...", flush=True)
     imgs = _render(project, want, scale, workers)
-    phone = _render(project, [shot_frames[s.name][1] for s in shots], 360 / max(comp.width, comp.height))
+    phone = _render(project, [shot_frames[s.name][1] for s in shots], phone_scale(comp.width, comp.height))
 
     tw = int(comp.width * scale)
     th = int(comp.height * scale)
@@ -392,7 +452,7 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     sh.image(sound_strip(sq, wav, comp, gw), gx, y + 30)
     y += 430
 
-    sh.text("スマホ幅 (長辺 360px) での見え方", 24, y + 10, 18)
+    sh.text("スマホ (縦 360×780) での見え方", 24, y + 10, 18)
     x = 24
     for s in shots:
         img = phone[shot_frames[s.name][1]]

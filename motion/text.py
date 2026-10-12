@@ -215,7 +215,7 @@ def text(c: skia.Canvas, s: str, x: float, y: float, *, font: str = "sans", size
     if blob is not None:
         p = paint or make_paint(color, alpha=alpha, **paint_kw)
         c.drawTextBlob(blob, ox, oy, p)
-        _nodes.note_text(c, p.getAlphaf(), (ox, oy - sh.cap_height, ox + sh.width, oy))
+        _nodes.note_text(c, p.getAlphaf(), (ox, oy - sh.cap_height, ox + sh.width, oy), s)
     return sh
 
 
@@ -299,5 +299,6 @@ def paragraph(c: skia.Canvas, s: str, x: float, y: float, width: float, *, font:
         blob = ln.shaped.blob()
         if blob is not None:
             c.drawTextBlob(blob, x + ln.x, y + top + ln.y, p)
-            _nodes.note_text(c, p.getAlphaf(), (x + ln.x, y + ln.y, x + ln.x + ln.shaped.width, y + top + ln.y))
+            _nodes.note_text(c, p.getAlphaf(), (x + ln.x, y + ln.y, x + ln.x + ln.shaped.width, y + top + ln.y),
+                             ln.shaped.text)
     return lines

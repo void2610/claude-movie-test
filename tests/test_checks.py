@@ -84,3 +84,55 @@ def test_text_overlaps_ignores_crossfade_and_clipped_text(tmp_path):
     assert all(not _overlaps_at(comp, t) for t in (0.85, 0.9, 0.95))
     comp = _two_titles(tmp_path, a_out=1.5, b_in=0.8, clip_a=True)
     assert not _overlaps_at(comp, 1.2)
+
+
+def _small_comp(tmp_path, fn):
+    from motion import Composition, scene
+    comp = Composition(width=400, height=200, fps=20, duration=1, background="#000000", linear=False)
+    comp.project_dir = str(tmp_path)
+    comp.add(scene(0, 1)(fn))
+    return comp
+
+
+def _seen_at(comp, t):
+    from motion.nodes import edits_of
+    from motion.render import FrameRenderer
+    FrameRenderer(comp).draw(t, t * comp.fps)
+    return edits_of(comp).seen
+
+
+def test_text_sizes_and_edge_cuts(tmp_path):
+    import pytest
+    from motion.checks import text_edge_cuts, text_sizes
+    from motion.nodes import edits_of, node
+
+    def s(c, ctx):
+        with node(c, ctx, "big", origin=(20, 80)) as n:
+            text.text(n.c, "BIG", 20, 80, size=60)
+        with node(c, ctx, "edge", origin=(340, 160)) as n:
+            text.text(n.c, "CUT AT EDGE", 340, 160, size=30)             # 右の縁からはみ出す
+        with node(c, ctx, "inner", origin=(20, 160)) as n:
+            n.c.clipRect(skia.Rect.MakeLTRB(0, 0, 60, 200))
+            text.text(n.c, "CLIPPED INSIDE", 20, 160, size=30)          # 要素の中のクリップで切る
+
+    comp = _small_comp(tmp_path, s)
+    seen = _seen_at(comp, 0.5)
+    sizes = {i: h for i, h, _ in text_sizes(seen)}
+    assert sizes["big"] == pytest.approx(text.shape("BIG", "sans", 60).cap_height, rel=0.01)
+    assert [i for i, _, _ in text_edge_cuts(seen, 400, 200)] == ["edge"]
+    assert "test_checks.py:" in edits_of(comp).where["big"]
+
+
+def test_text_outside_nodes_is_named_by_code_location(tmp_path):
+    from motion.checks import text_overlaps
+    w = text.shape("0.50 ITEM", "sans", 40).width
+
+    def s(c, ctx):
+        for x in (20, 20 + w * 0.6):        # 同じ行から 2 か所に描き、2 つ目が 1 つ目の 4 割に重なる
+            text.text(c, f"{ctx.t:.2f} ITEM", x, 100, size=40)
+
+    comp = _small_comp(tmp_path, s)
+    over = text_overlaps(_seen_at(comp, 0.5))
+    assert len(over) == 1 and all("test_checks.py:" in i for i in over[0][:2])
+    ids = sorted(_seen_at(comp, 0.5))
+    assert ids == sorted(_seen_at(comp, 0.7))       # 文字列が変わっても同じ名前のまま

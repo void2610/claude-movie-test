@@ -178,13 +178,21 @@ def _render_one(f: int) -> bytes:
     return _R.frame(f).tobytes()
 
 
-def _text_overlaps_one(f: int) -> list[tuple[str, str, float]]:
-    """f 番目のコマで、別々の要素の文字が重なっている組 (要素のラベル, 要素のラベル, 重なり)。"""
-    from .checks import text_overlaps
+def _text_facts_one(f: int) -> dict:
+    """f 番目のコマの文字の重なり・大きさ・縁での見切れ。範囲は等倍の画素に直して返す。"""
+    from .checks import text_edge_cuts, text_overlaps, text_sizes
     from .nodes import edits_of
     _R.draw(f / _R.comp.fps, f)
     e = edits_of(_R.comp)
-    return [(e.labels.get(a, a), e.labels.get(b, b), share) for a, b, share in text_overlaps(e.seen)]
+    k = 1.0 / _R.scale
+
+    def full(r):
+        return tuple(v * k for v in r)
+    return {"over": [(a, b, share, full(e.seen[a].text_box), full(e.seen[b].text_box))
+                     for a, b, share in text_overlaps(e.seen)],
+            "size": [(i, cap * k, full(r)) for i, cap, r in text_sizes(e.seen)],
+            "cut": [(i, full(v), full(r)) for i, v, r in text_edge_cuts(e.seen, _R.w, _R.h)],
+            "names": {i: (e.labels.get(i, i), e.where.get(i, "")) for i in e.seen if e.seen[i].texts}}
 
 
 def _pool(project, scale, mb, post, workers):

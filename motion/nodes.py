@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 import json
+import sys
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -44,8 +46,20 @@ class Seen:
     span: tuple[float, float] | None = None
     space: str = "2d"
     parent: str | None = None
-    text: float = 0.0   # この要素が直接描いた文字の最大の不透明度 (0 なら文字を描いていない)
-    text_box: tuple[float, float, float, float] | None = None   # その文字の見えている範囲 (大文字の高さ・クリップ後)
+    # この要素が直接描いた文字 1 回ごとの (不透明度, 範囲, 見えている範囲)。範囲は幅 × 大文字の高さで、見えている範囲はクリップ後
+    texts: list[tuple[float, tuple, tuple]] = field(default_factory=list)
+
+    @property
+    def text(self) -> float:
+        """直接描いた文字の最大の不透明度 (0 なら文字を描いていない)。"""
+        return max((a for a, _, _ in self.texts), default=0.0)
+
+    @property
+    def text_box(self) -> tuple[float, float, float, float] | None:
+        box = None
+        for _, _, v in self.texts:
+            box = _union(box, v)
+        return box
 
 
 class Edits:
@@ -60,6 +74,7 @@ class Edits:
         self.seen: dict[str, Seen] = {}
         self.spans: dict[str, tuple[float, float]] = {}
         self.labels: dict[str, str] = {}
+        self.where: dict[str, str] = {}   # 要素を描いたコードの場所 (review の指摘から直す箇所へ飛ぶため)
         # 入れ子の要素: 親の名前と時刻 (子の時刻は親のずれも受ける)、親が記録中の子の一覧
         self._ids: list[tuple[str, float]] = []
         self._rec: list[list[Seen]] = []
@@ -77,6 +92,7 @@ class Edits:
         return self.of(id).get("props", {}).get(key, default)
 
     def begin_frame(self) -> None:
+        _tls.frame = self
         self.seen = {}
         self._ids = []
         self._rec = []
@@ -108,8 +124,7 @@ class Edits:
         if s.id in self.seen:
             a, b = self.seen[s.id].bounds, s.bounds
             s.bounds = (min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]))
-            s.text = max(s.text, self.seen[s.id].text)
-            s.text_box = _union(s.text_box, self.seen[s.id].text_box)
+            s.texts = self.seen[s.id].texts + s.texts
         self.seen[s.id] = s
 
 
@@ -130,8 +145,7 @@ class Node:
         self._e = edits
         self.t = edits.base_t(ctx.t) - edits.tr(id, "dt")
         self.props: dict[str, dict] = {}
-        self.text = 0.0
-        self.text_box: tuple[float, float, float, float] | None = None
+        self.texts: list[tuple[float, tuple, tuple]] = []
 
     def prop(self, key: str, default: Any) -> Any:
         """スタジオから変えられる値。既定値の型で、文言・色・数値・真偽のどれかになる。"""
@@ -140,8 +154,43 @@ class Node:
         return v
 
 
-# 描いている途中の要素。文字を描く関数は、どの要素の中で描かれたかを知らないのでここで引く
-_open: list[Node] = []
+_ENGINE = str(Path(__file__).resolve().parent)
+
+
+def _where() -> str:
+    """node を呼んだ作品のコードの場所。描く関数を挟むと、呼び出し元から順に「project.py:331 › 280」と並べる。"""
+    f, out = sys._getframe(1), []
+    while f is not None and len(out) < 3:
+        fn = f.f_code.co_filename
+        if fn.startswith(_ENGINE) or fn.endswith("contextlib.py"):
+            if out:
+                break
+        else:
+            out.append((Path(fn).name, f.f_lineno))
+        f = f.f_back
+    parts, prev = [], None
+    for name, line in reversed(out):
+        parts.append(str(line) if name == prev else f"{name}:{line}")
+        prev = name
+    return " › ".join(parts)
+
+
+# 描いている途中の要素と、描いている途中のコマの記録。文字を描く関数はどの要素の中で描かれたかを知らないのでここで引く。
+# スタジオはプレビューと要素の一覧を別のスレッドで同時に描くので、スレッドごとに持つ
+_tls = threading.local()
+
+
+def _open() -> list[Node]:
+    if not hasattr(_tls, "open"):
+        _tls.open = []
+    return _tls.open
+
+
+def _share(a, b) -> float:
+    ix = min(a[2], b[2]) - max(a[0], b[0])
+    iy = min(a[3], b[3]) - max(a[1], b[1])
+    small = min((r[2] - r[0]) * (r[3] - r[1]) for r in (a, b))
+    return ix * iy / small if ix > 0 and iy > 0 and small > 0 else 0.0
 
 
 def _union(a, b):
@@ -157,19 +206,49 @@ def _clipped(c: skia.Canvas, r: skia.Rect) -> tuple[float, float, float, float] 
     return (r.left(), r.top(), r.right(), r.bottom())
 
 
-def note_text(c: skia.Canvas, alpha: float, rect: tuple[float, float, float, float]) -> None:
-    """描いている途中の要素が c に文字を描いたことを残す (review とスタジオが文字の重なりを見つけるため)。
+def _mapped(c: skia.Canvas, m: skia.Matrix, texts: list, opacity: float = 1.0) -> list:
+    """記録の座標の文字を、親へ描き込んだ先の座標に写し、そこでのクリップを当てる (見えなくなったものは捨てる)。"""
+    out = []
+    for a, r, v in texts:
+        vis = _clipped(c, m.mapRect(skia.Rect.MakeLTRB(*v)))
+        if vis:
+            rr = m.mapRect(skia.Rect.MakeLTRB(*r))
+            out.append((a * opacity, (rr.left(), rr.top(), rr.right(), rr.bottom()), vis))
+    return out
+
+
+def note_text(c: skia.Canvas, alpha: float, rect: tuple[float, float, float, float], s: str = "") -> None:
+    """描いている途中の要素が c に文字を描いたことを残す (review とスタジオが文字の重なり・大きさ・縁での見切れを見つけるため)。
 
     rect は文字の範囲 (c の座標)。今の変換とクリップを当てて、要素の記録の座標で持つ。
+    要素で囲まずに描いた文字は、描いたコードの場所を名前にした仮の要素として画面の座標で残す (中身が変わる
+    時刻表示やタイプライターもコマをまたいで 1 つに数えるため)。同じ場所に重ねて描いたもの (影・光彩) は
+    1 つにまとめ、同じ行から別の場所に描いたものは「#2」から番号で分ける。表示名は文字列 s にする。
     """
-    if not _open or alpha <= 0:
+    if alpha <= 0:
         return
-    box = _clipped(c, c.getTotalMatrix().mapRect(skia.Rect.MakeLTRB(*rect)))
-    if box is None:
+    texts = _mapped(c, c.getTotalMatrix(), [(alpha, rect, rect)])
+    if not texts:
         return
-    n = _open[-1]
-    n.text = max(n.text, alpha)
-    n.text_box = _union(n.text_box, box)
+    if _open():
+        _open()[-1].texts += texts
+        return
+    e = getattr(_tls, "frame", None)
+    if e is None:
+        return
+    where = _where()
+    name = f"文字「{' '.join(s.split())[:24]}」"
+    vis = texts[0][2]
+    k = 1
+    while True:
+        id = f"{where}#{k}"
+        prev = e.seen.get(id)
+        if prev is None or (prev.text_box and _share(prev.text_box, vis) > 0.5):
+            break
+        k += 1
+    e.labels[id] = name
+    e.where[id] = where
+    e.note(Seen(id, name, vis, (vis[0], vis[1]), space="text", texts=texts))
 
 
 def props(ctx, id: str) -> Node:
@@ -187,6 +266,8 @@ def node(c: skia.Canvas, ctx, id: str, *, origin: tuple[float, float] = (0.0, 0.
     e = edits_of(ctx.comp)
     o = e.of(id)
     n = Node(c, ctx, id, e)
+    if id not in e.where:
+        e.where[id] = _where()
     parent = e.parent()
     if span:
         e.spans[id] = span
@@ -197,11 +278,11 @@ def node(c: skia.Canvas, ctx, id: str, *, origin: tuple[float, float] = (0.0, 0.
     children: list[Seen] = []
     e._ids.append((id, n.t))
     e._rec.append(children)
-    _open.append(n)
+    _open().append(n)
     try:
         yield n
     finally:
-        _open.pop()
+        _open().pop()
         e._rec.pop()
         e._ids.pop()
     pic = rec.finishRecordingAsPicture()
@@ -226,18 +307,15 @@ def node(c: skia.Canvas, ctx, id: str, *, origin: tuple[float, float] = (0.0, 0.
     if cull.width() > 0 and cull.height() > 0 and cull.width() < 1e5:
         r = m.mapRect(cull)
         org = m.mapXY(ox, oy)
-        tb = _clipped(c, m.mapRect(skia.Rect.MakeLTRB(*n.text_box))) if n.text_box else None
         e.emit(Seen(id, e.labels[id], (r.left(), r.top(), r.right(), r.bottom()), (org.x(), org.y()), n.props, span,
-                    parent=parent, text=n.text * op if tb else 0.0, text_box=tb))
+                    parent=parent, texts=_mapped(c, m, n.texts, op)))
     # 子の範囲は親の記録の中の座標なので、親を描いた変換で写してから上へ渡す
     for ch in children:
         r = m.mapRect(skia.Rect.MakeLTRB(*ch.bounds))
         org = m.mapXY(*ch.origin)
         ch.bounds = (r.left(), r.top(), r.right(), r.bottom())
         ch.origin = (org.x(), org.y())
-        if ch.text_box:
-            ch.text_box = _clipped(c, m.mapRect(skia.Rect.MakeLTRB(*ch.text_box)))
-            ch.text = ch.text if ch.text_box else 0.0
+        ch.texts = _mapped(c, m, ch.texts)
         e.emit(ch)
     c.restore()
 

@@ -213,6 +213,8 @@ class Studio(Previewer):
                 for f in range(0, comp.nframes, max(int(comp.fps / 4), 1)):
                     r.draw(f / comp.fps, f)
                     for k, v in E.seen.items():
+                        if v.space == "text":
+                            continue
                         seen_at.setdefault(k, []).append(f / comp.fps)
                         parents[k] = v.parent
                 step = max(int(comp.fps / 4), 1) / comp.fps
@@ -247,7 +249,8 @@ class Studio(Previewer):
                 over.setdefault(a, []).append(b)
                 over.setdefault(b, []).append(a)
             out = []
-            for s in E.seen.values():
+            # 要素で囲まずに描いた文字は検査のための仮の要素で、つかんで動かせないので一覧に出さない
+            for s in (x for x in E.seen.values() if x.space != "text"):
                 l, t, r, b = s.bounds
                 tb = s.text_box
                 out.append({"id": s.id, "label": s.label, "space": s.space, "span": s.span, "parent": s.parent,

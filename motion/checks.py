@@ -40,6 +40,9 @@ class Finding:
     detail: str
     crop: tuple[int, int, int, int] | None = None   # 問題箇所 (x, y, w, h) 等倍の座標
     waived: str | None = None
+    frame: int | None = None                        # boxes を描くコマ
+    boxes: list[tuple[float, float, float, float]] = field(default_factory=list)   # 問題の要素の範囲 (等倍)
+    where: str = ""                                 # 要素を描いたコードの場所
 
 
 def is_color(rgb: np.ndarray, target: str, tol: float = 60.0) -> bool:
@@ -119,7 +122,7 @@ def text_overlaps(seen: dict, min_alpha: float = 0.6, min_share: float = 0.2) ->
     texts = []
     for s in seen.values():
         anc = chain(s)
-        if (s.text >= min_alpha and s.text_box and s.space == "2d"
+        if (s.text >= min_alpha and s.text_box and s.space in ("2d", "text")
                 and not any(seen[a].space != "2d" for a in anc if a in seen)):
             texts.append((s, set(anc)))
     out = []
@@ -133,4 +136,45 @@ def text_overlaps(seen: dict, min_alpha: float = 0.6, min_share: float = 0.2) ->
             small = min(area(ra), area(rb))
             if ix > 0 and iy > 0 and small > 0 and ix * iy > min_share * small:
                 out.append((a.id, b.id, ix * iy / small))
+    return out
+
+
+# 文字の検査の基準。入れ替えのクロスフェードで両方が半分の濃さになる瞬間は数えない
+TEXT_MIN_ALPHA = 0.6
+# 縦に持ったスマホの画面 (360×780) に収めたとき、大文字の高さ 6px (文字の大きさ約 8.5px) 未満は読めない
+PHONE_SCREEN = (360, 780)
+MIN_PHONE_CAP = 6.0
+
+
+def phone_scale(width: int, height: int) -> float:
+    """縦に持ったスマホの画面に動画を収めたときの縮尺 (横長・正方形は幅 360px、縦長は幅 360px か高さ 780px)。"""
+    return min(PHONE_SCREEN[0] / width, PHONE_SCREEN[1] / height)
+# 縁で切れたまま止まっている (1 コマで 0.5px 未満しか動かない) 文字が 0.3 秒続いたら数える。画面の外から滑り込む途中は数えない
+CUT_MIN_SECONDS = 0.3
+CUT_STILL_PX = 0.5
+
+
+def text_sizes(seen: dict, min_alpha: float = TEXT_MIN_ALPHA) -> list[tuple[str, float, tuple]]:
+    """1 コマの中で、要素ごとに一番小さい文字の大文字の高さ (画素) とその範囲。薄い文字は数えない。"""
+    out = []
+    for s in seen.values():
+        vis = [(r[3] - r[1], r) for a, r, _ in s.texts if a >= min_alpha]
+        if vis:
+            h, r = min(vis)
+            out.append((s.id, h, r))
+    return out
+
+
+def text_edge_cuts(seen: dict, w: float, h: float, min_alpha: float = TEXT_MIN_ALPHA) -> list[tuple[str, tuple, tuple]]:
+    """1 コマの中で、画面の縁で切れている文字 (要素, 見えている範囲, 範囲)。要素の中のクリップで切った文字は数えない。"""
+    out = []
+    for s in seen.values():
+        for a, r, v in s.texts:
+            if a < min_alpha:
+                continue
+            outside = r[0] < -1 or r[1] < -1 or r[2] > w + 1 or r[3] > h + 1
+            at_edge = v[0] <= 1 or v[1] <= 1 or v[2] >= w - 1 or v[3] >= h - 1
+            if outside and at_edge:
+                out.append((s.id, v, r))
+                break
     return out

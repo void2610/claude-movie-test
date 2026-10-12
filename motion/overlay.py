@@ -164,4 +164,5 @@ class Captions(Scene):
                 stroke.setStrokeJoin(skia.Paint.kRound_Join)
                 c.drawTextBlob(blob, ox + ln.x, y, stroke)
                 c.drawTextBlob(blob, ox + ln.x, y, paint("#FFFFFF", alpha=a))
-                note_text(c, a, (ox + ln.x, y - ln.shaped.cap_height, ox + ln.x + ln.shaped.width, y))
+                note_text(c, a, (ox + ln.x, y - ln.shaped.cap_height, ox + ln.x + ln.shaped.width, y),
+                          ln.shaped.text)
