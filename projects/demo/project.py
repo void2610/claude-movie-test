@@ -6,7 +6,6 @@ import pedalboard as pb
 
 from motion import Composition, Palette, Scene, anim, audio, cache, draw, easing, noise, post, scene, sfx, text
 from motion.anim import impact, progress, spring, stagger, tween, window
-from motion.checks import Waiver
 from motion.transition import Transition
 
 BPM = 120
@@ -195,8 +194,6 @@ def build() -> Composition:
         post.vignette(0.35),
         post.grain(0.03),
     ]
-    comp.waivers.append(Waiver("text-small", "四隅の計器 (HUD) は画面の飾りで、読ませない",
-                               elements=("project.py:hud",)))
     comp.audio = make_audio
     return comp
 

@@ -10,7 +10,6 @@ import pedalboard as pb
 
 from motion import Composition, audio, cache, draw, easing, overlay, post, scene, sfx, text
 from motion.anim import clamp, impact, progress, spring, tween
-from motion.checks import Waiver
 from motion.edit import Sequence, Shot, blur_fill, compare, cut_on_beats
 from motion.footage import Clip, Footage, Grade, TimeMap
 from motion.overlay import Captions, Cue
@@ -311,6 +310,5 @@ def build(aspect: str = "16:9") -> Composition:
         mx.fx("drums", pb.Compressor(threshold_db=-14, ratio=3))
         return mx.render(f"{comp.build_dir}/audio.wav", lufs=-14)
 
-    comp.waivers.append(Waiver("text-small", "スローの速さの数字は演出の飾りで、読ませない", elements=("文字「x?.??」", "文字「FREEZE」")))
     comp.audio = make_audio
     return comp

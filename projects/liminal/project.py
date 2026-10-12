@@ -7,7 +7,6 @@ import skia
 from motion import Composition, Scene, audio, draw, easing, noise, post, scene, sfx, text
 from motion.anim import clamp, impact, lerp, progress, spring, stagger, tween, window
 from motion.checks import Waiver
-from motion.nodes import node
 from motion.transition import Transition
 
 from ui import (MONO, background, caret, checkmark, chip, colored_line, fuzzy, keycap, logo_mark, pal, panel,
@@ -399,14 +398,13 @@ def build() -> Composition:
             running = done_t - SCN_STEP <= ctx.t < done_t
             panel(c, 120 - (1 - a) * 60, y, 1180, 92, border=pal.green if done > 0 else (pal.blue if running else pal.line),
                   glow=0.5 * done * impact(ctx.t, [done_t], 6) + (0.3 if running else 0), alpha=a, radius=14)
-            with node(c, ctx, f"scenario.step{i + 1}", origin=(150, y + 46), label=f"シナリオの手順 {i + 1}") as n:
-                text.text(n.c, f"{i + 1:02d}", 150, y + 46, font=MONO, size=22, color=pal.faint, valign="cap", alpha=a)
-                text.text(n.c, op, 210, y + 46, font=MONO, size=28, color=pal.purple, valign="cap", alpha=a)
-                ow = text.shape(op, MONO, 28).width
-                text.text(n.c, path, 230 + ow, y + 46, font=MONO, size=28, axes={"wght": 650}, color=pal.yellow,
-                          valign="cap", alpha=a)
-                pw = text.shape(path, MONO, 28, {"wght": 650}).width
-                text.text(n.c, arg, 250 + ow + pw, y + 46, font=MONO, size=28, color=pal.text, valign="cap", alpha=a)
+            text.text(c, f"{i + 1:02d}", 150, y + 46, font=MONO, size=22, color=pal.faint, valign="cap", alpha=a)
+            text.text(c, op, 210, y + 46, font=MONO, size=28, color=pal.purple, valign="cap", alpha=a)
+            ow = text.shape(op, MONO, 28).width
+            text.text(c, path, 230 + ow, y + 46, font=MONO, size=28, axes={"wght": 650}, color=pal.yellow,
+                      valign="cap", alpha=a)
+            pw = text.shape(path, MONO, 28, {"wght": 650}).width
+            text.text(c, arg, 250 + ow + pw, y + 46, font=MONO, size=28, color=pal.text, valign="cap", alpha=a)
             if running:
                 ang = (ctx.t * 720) % 360
                 c.drawArc(skia.Rect.MakeXYWH(1238, y + 30, 32, 32), ang, 270, False,
@@ -522,17 +520,6 @@ def build() -> Composition:
     xfades = [(5.75, 6.25), (13.75, 14.25), (15.75, 16.25), (17.75, 18.25), (19.75, 20.25)]
     comp.motion_blur = lambda t: 32 if any(a <= t < b for a, b in xfades) else 4
     comp.waivers.append(Waiver("edge-clip", "push トランジションで画面ごと左へ送り出している", (13.75, 14.25)))
-    comp.waivers += [
-        Waiver("text-small", "1 語ずつ色分けしたコードは見た目を見せる飾りで、1 語ずつは読ませない",
-               elements=("*ui.py:colored_line",)),
-        Waiver("text-small", "パレットとターミナルの部品 (タブ・プロンプト・候補の一覧・キー・分類・引数名・型・ボタン・ウィンドウの題名) は"
-                             "画面の再現で、読ませない",
-               elements=("文字「Command」", "文字「Scenario」", "文字「Log」", "文字「History」", "文字「>」",
-                         "project.py:palette › draw_list", "文字「● Player/Health」", "文字「value」",
-                         "project.py:palette › draw_args › ui.py:chip", "文字「Run」", "文字「liminal — zsh」", "文字「$」")),
-        Waiver("text-small", "シナリオの手順の表 (行番号・操作・パス・引数) はシナリオのコードの見た目で、1 つずつは読ませない",
-               elements=("scenario.step*",)),
-    ]
     comp.add(
         bg, intro, palette, code, cli, scenario, features, logo,
         Transition(palette, code, 5.75, 0.5, "zoom", amount=0.25),

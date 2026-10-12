@@ -13,7 +13,7 @@ import skia
 
 from motion import Composition, Cue, Palette, audio, draw, post, rules, scene, sfxlib, text
 from motion.anim import clamp, impact, lerp, progress
-from motion.checks import Check, Waiver, color_along
+from motion.checks import Check, color_along
 from motion.nodes import edits_of, node, props
 from motion.tune import tune
 from motion.persp import Camera, Card, draw_cards
@@ -350,11 +350,6 @@ def build(aspect: str = "1:1") -> Composition:
         return color_along(img, pts, edits_of(comp).prop("wires", "http_color", P.BLUE))
 
     comp.checks.append(Check("HTTP API の線の合流区間は青", [8.3, 8.7, 9.6], http_wire_is_blue))
-    comp.waivers += [
-        Waiver("text-small", "パレットのタブと候補の一覧は画面の再現で、1 つずつは読ませない",
-               elements=("palette.tabs", "palette.list")),
-        Waiver("text-small", "テストの経路のカードの中のコードは、コードから呼べることを見せる飾り", elements=("way.test.body",)),
-    ]
 
     comp.add(bg, world, captions)
     comp.post = [
