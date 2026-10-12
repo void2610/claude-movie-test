@@ -88,6 +88,7 @@ uv run pytest                                           # テスト (描画を�
 - `Knowledge/motion-skill-rules.md`: 動き・構図・文字・色・音の具体的な数値ルールと避ける定番 (作り込む前に読む)
 - `Knowledge/motion-studio-references-2026-10.md`: 参考事例の調査 (rari の記事・motionpromptgallery など)
 - `Knowledge/motion-sound-and-variants-references-2026-10.md`: 実録音の効果音と音の QA (opus-sound-layer)、案を並べて選ぶ反復 (fframes)
+- `Knowledge/manimgx-agent-animation-engine-2026-10.md`: ManimGX (Rust + wgpu、Manim 互換) の速さの工夫と、エージェント向けの確認手段 (`inspect` のストーリーボードとレイアウト検査)
 - `Knowledge/shneural-engine-anatomy.md`: 自作 Python エンジンの構成例 (BPM 基準の core、シーンごとのファイル、`f(t)` 型のレンダラ、コンタクトシートでの自己レビュー)
 - `Knowledge/opus55-video-stack-survey.md`: 他の事例の技術スタックと品質を上げる工夫
 - `Knowledge/shneural-motion-reel-setup.md`: 参考にしたツイートと制作環境

@@ -1,0 +1,26 @@
+# ManimGX: エージェント向けの 3D アニメーションエンジン (2026-10-12 調査)
+
+出典: @sinaatalay の投稿 (2026-10-11)、github.com/academa-labs/manimgx、manimgx.academa.ai (llms.txt・developer-guide/engine・reference/rendering/command-line)
+
+## 何か
+
+- Manim Community Edition と同じ Python API (型注釈つき) で、数学・3D の動画を作る。描画は Rust + wgpu (Metal / D3D12 / Vulkan、GPU が無ければ同梱の lavapipe で CPU)。文字と数式は Typst (LaTeX は mitex で変換)、エンコードは同梱の x264
+- `pip install manimgx` だけで動く (65〜110MB、Python 3.13 以上、LaTeX・FFmpeg 不要)。ブラウザでも Pyodide + WebGPU で同じシーンを動かせる
+- ライセンス: 本体は MIT だが、ネイティブの wheel は x264 を含むので全体として GPL-3.0-or-later
+- 3D: PBR 材質・画像ベースのライティング・AO・ブルーム・AgX トーンマッピング (Google Filament を移植)
+
+## 速さ
+
+- 1080p60・合計 36.2 秒 (5 シーン) を起動から MP4 まで 3.08 秒 (M4 Pro)。ManimCE の 90.6 倍、ManimGL の 11.5 倍、Blender Workbench の 18.7 倍
+- 1 コマの描画は 2560×1440 で中央値 0.5〜1.7ms
+- 工夫: 形状は鍵つきで GPU に 1 度だけ送り、毎コマは「ビュー」と「レコード (1 件 336 バイト)」だけ渡す。曲線は画面上の大きさに応じて GPU で分割 (1/32px、最大 256 本)。MSAA ではなく解析的な被覆。変化したマクロブロックだけを GPU で NV12 にして読み戻し、x264 は別スレッドで変化の無い領域の解析を省く。描画とエンコードの間は GIL を外す。GPU の初期化は別スレッドで、最初のコマだけが待つ
+- このエンジン (skia の CPU 描画 + プロセス並列) は liminal_poster の 720 コマ (1080×1080、モーションブラーとポスト処理あり) で約 14 秒 = 約 50 コマ/秒。グレインで毎コマ全画素が変わるため、「変化した領域だけエンコード」は効かない
+
+## エージェント向けの確認手段
+
+- `manimgx inspect`: 動画を作らずに、各 play / wait の終わりの時点 (または `-t 1.5,end`) を描いてストーリーボード PNG (1 枚 6 コマ、各コマに `#play t=… file:line`) とタイムラインを出す。レイアウトの問題に番号つきの枠を付け、1 件でもあれば終了コード 1
+- 2D のレイアウト検査の種類: 内容の見切れ (「左の縁を 4.89 はみ出す」)、文字どうしの重なり、線や塗りが文字を横切る (「Polygon runs through the text」)、小さすぎる文字 (「1080p で 20px」)。グラフが枠から出るなどは注記で、終了コードに影響しない。3D のシーンは検査しない
+- 検査は区切りの時点だけ。このエンジンの `review` の文字の重なりは全コマを見る (2026-10-11 追加)
+- `manimgx preview`: 保存のたびに作り直し、再生位置を保ち、エラーは最後に描けたコマの上に出す (このエンジンのスタジオも同じ動き)
+- ナレーション: `self.say("The derivative of [x squared] is [two x].", anim1, anim2)` で、括弧の語が読まれる時刻に各アニメーションを始める。TTS は差し替え可能で、render が字幕 (.srt) も書き出す
+- エラーは失敗した行と、Manim CE からの名前の違いのヒント (ShowCreation → Create) を出す。毎コマのコールバックはコマ数を数えず時刻から状態を決める (このエンジンの `f(t)` と同じ原則)
