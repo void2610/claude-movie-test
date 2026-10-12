@@ -74,6 +74,7 @@ uv run pytest                                           # テスト (描画を�
 | `overlay` | `callout` (引き出し線つきラベル)、`highlight` (周りを暗くして囲む)、`lower_third`、`badge`、`Captions` (SRT または Cue のリスト) |
 | `scan` | キャプチャの動きの量・音の大きさ・シーンの切れ目を測り、`highlights(n)` で見せ場の候補を返す |
 | `blender` | `render_plate` で Blender をヘッドレス実行して連番 PNG を作る (入力が同じならキャッシュ)。`Plate` で時刻から引いて合成。初回だけ Metal カーネルのコンパイルに数分かかる |
+| `mgx` | `MgxPlate(file, "シーン名", start=, size=, params=)` で ManimGX (Manim CE 互換の API) のシーンを透明な背景の連番にし、`comp.prepare.append(plate.prepare)` で書き出しの前に作って `plate.draw(c, ctx, x, y)` で合成する。数式・グラフ・3D の曲面向け。1080²・60fps の 3 秒で約 3 秒。シーンでは `mgx.params()` で値を読む |
 
 - 描画は `f(t)` で決定的に書く (乱数はシード固定か `noise.hash01`)。並列ワーカーがフレームをばらばらに描くため、フレーム間で状態を持ち越さない。シミュレーションは `Scene.setup` で `cache.cached` を使って前計算する
 - `draw.fill` は変換を無視してクリップ全体を塗る。シーンを動かす演出では、自分でフレーム枠にクリップする (トランジションはクリップ済み)
@@ -100,6 +101,7 @@ uv run pytest                                           # テスト (描画を�
 | 2D 描画 | skia-python, numpy | このリポジトリの uv 環境 (`uv run python ...`) |
 | 文字組み | uharfbuzz | uv 環境。可変フォントの軸 (wght / wdth 等) を指定したシェーピング |
 | ポスト処理 | opencv-python | uv 環境。bloom・色収差・グリッチ・グレイン等 |
+| 数式・グラフ・3D | ManimGX | uv 環境 (Python 3.13 以上のときだけ入る)。`import manimgx as m` で Manim CE と同じ書き方。配布物は x264 を含むので GPL |
 | 3D | Blender 5.2 | CLI: `blender --background --python <script>`。GUI 操作は Blender MCP (`.mcp.json` の `blender`、Blender 起動中のみ有効) |
 | シンセ | Surge XT | VST3: `/Library/Audio/Plug-Ins/VST3/Surge XT.vst3`。プリセットは `/Library/Application Support/Surge XT/` |
 | エフェクト | Surge XT Effects | VST3: `/Library/Audio/Plug-Ins/VST3/Surge XT Effects.vst3` |

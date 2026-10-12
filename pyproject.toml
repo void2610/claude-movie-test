@@ -4,6 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
     "librosa>=1.0.0",
+    "manimgx>=0.1.1 ; python_full_version >= '3.13'",
     "numpy>=2.5.3",
     "opencv-python>=5.0.0.93",
     "pedalboard>=0.9.25",
