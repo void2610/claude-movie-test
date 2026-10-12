@@ -142,6 +142,42 @@ def text_findings(project, comp, workers=None) -> list:
     return sorted(out, key=lambda fd: fd.t)
 
 
+def _error_view(i: int, fd, full: dict, fps: int) -> tuple[np.ndarray | None, int, int]:
+    """シートに載せるエラーの画像 (問題の要素を番号つきの赤枠で囲んだ切り出し)、表示の幅、その行の高さ。"""
+    import cv2
+    if fd.rule.startswith("sound"):
+        return None, 0, 30
+    if fd.boxes and fd.frame in full:
+        img = full[fd.frame]
+        H, W = img.shape[:2]
+        m = 48
+        x0 = int(max(min(b[0] for b in fd.boxes) - m, 0))
+        y0 = int(max(min(b[1] for b in fd.boxes) - m, 0))
+        x1 = int(min(max(b[2] for b in fd.boxes) + m, W))
+        y1 = int(min(max(b[3] for b in fd.boxes) + m, H))
+        # 小さな文字の切り出しは原寸だと読めないので、幅 360px までは拡大してから枠を描く (枠の太さを揃える)
+        w = min(max(x1 - x0, 360), 720)
+        k = w / max(x1 - x0, 1)
+        crop = cv2.resize(np.ascontiguousarray(img[y0:y1, x0:x1]), (w, max(int((y1 - y0) * k), 1)),
+                          interpolation=cv2.INTER_LINEAR)
+        red = (255, 77, 79)
+        for b in fd.boxes:
+            p0 = (int((b[0] - x0) * k) - 4, int((b[1] - y0) * k) - 4)
+            p1 = (int((b[2] - x0) * k) + 4, int((b[3] - y0) * k) + 4)
+            cv2.rectangle(crop, p0, p1, red, 3, cv2.LINE_AA)
+            tag = (max(p0[0], 0), max(p0[1] - 26, 0))
+            cv2.rectangle(crop, tag, (tag[0] + 30, tag[1] + 26), red, -1)
+            cv2.putText(crop, str(i), (tag[0] + 6, tag[1] + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2,
+                        cv2.LINE_AA)
+    else:
+        img = full[min(full, key=lambda f: abs(f - fd.t * fps))]
+        x, yy, cw, ch = fd.crop or (0, 0, img.shape[1], img.shape[0])
+        crop = img[yy:yy + ch, x:x + cw]
+        w = min(cw, 420) if fd.crop else 360
+    h = int(crop.shape[0] * w / max(crop.shape[1], 1))
+    return crop, w, h + (70 if fd.where else 48)
+
+
 def _attack_offsets(wav: str, times: list[float], window: float = 0.06) -> list[tuple[float | None, float]]:
     """各時刻の前後 window 秒で最も急な音量の立ち上がりの位置 (ms) と、その鋭さ (周囲 2 秒の中央値比) を返す。
 
@@ -367,7 +403,8 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     row_h = th + 50
     cut_h = int(th * 0.55) + 44
     errors = [fd for fd in findings if fd.waived is None]
-    err_h = (len(errors) * 250 + 60) if errors else 60
+    views = [_error_view(i, fd, full, fps) for i, fd in enumerate(errors, 1)]
+    err_h = (sum(h for _, _, h in views) + 60) if errors else 60
     detail_h = len(shots) * 360 + 60
     H = (120 + err_h + len(shots) * row_h + len(cut_frames) * cut_h + 260 + max(i.shape[0] for i in phone.values())
          + 120 + detail_h + 430)
@@ -382,13 +419,13 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     if errors:
         sh.text(f"エラー {len(errors)} 件 (直すか、理由つきの Waiver を書くまで完了にしない)", 24, y + 10, 20, WARN)
         y += 40
-        for fd in errors:
-            sh.text(f"{fd.t:.2f}s  {fd.rule}: {fd.detail}"[:110], 24, y + 10, 15, WARN)
-            img = full[min(full, key=lambda f: abs(f - fd.t * fps))]
-            x, yy, cw, ch = fd.crop or (0, 0, img.shape[1], img.shape[0])
-            crop = img[yy:yy + ch, x:x + cw]
-            hh = sh.image(crop, 24, y + 26, min(cw, 420) if fd.crop else 360) if not fd.rule.startswith("sound") else 0
-            y += (max(hh, 200) + 44) if hh else 30
+        for i, (fd, (img, w, h)) in enumerate(zip(errors, views), 1):
+            sh.text(f"[{i}] {fd.t:.2f}s  {fd.rule}: {fd.detail}"[:110], 24, y + 10, 15, WARN)
+            if fd.where:
+                sh.text(fd.where, 24, y + 30, 13, DIM, font="mono")
+            if img is not None:
+                sh.image(img, 24, y + (48 if fd.where else 26), w)
+            y += h
     else:
         sh.text("エラー 0 件", 24, y + 10, 20, OK)
         y += 50
@@ -470,7 +507,8 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
 
     lines = [f"# レビュー {stamp}", "", f"シート: {png.name}", "",
              f"## エラー ({len(errors)} 件)", ""]
-    lines += [f"- {fd.t:.2f}s `{fd.rule}`: {fd.detail}" for fd in errors] or ["- なし"]
+    lines += [f"- [{i}] {fd.t:.2f}s `{fd.rule}`: {fd.detail}" + (f" — `{fd.where}`" if fd.where else "")
+              for i, fd in enumerate(errors, 1)] or ["- なし"]
     waived = [fd for fd in findings if fd.waived is not None]
     if waived:
         lines += ["", "例外として扱ったもの:"] + [f"- {fd.t:.2f}s `{fd.rule}`: {fd.waived}" for fd in waived]
@@ -518,5 +556,5 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     md.write_text("\n".join(lines), encoding="utf-8")
     print(f"-> {png}\n-> {md}")
     for fd in errors:
-        print(f"ERROR {fd.t:.2f}s {fd.rule}: {fd.detail}")
+        print(f"ERROR {fd.t:.2f}s {fd.rule}: {fd.detail}" + (f"  ({fd.where})" if fd.where else ""))
     return ReviewResult(png, md, errors)

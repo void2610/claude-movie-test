@@ -28,7 +28,7 @@ from .preview import Previewer
 
 UI = Path(__file__).with_name("studio_ui.html")
 NOTE_RE = re.compile(r"^- \[( |x)\] (\d+(?:\.\d+)?)s (.*)$")
-ERR_RE = re.compile(r"^- (\d+(?:\.\d+)?)s `([^`]+)`: (.*)$")
+ERR_RE = re.compile(r"^- (?:\[\d+\] )?(\d+(?:\.\d+)?)s `([^`]+)`: (.*)$")
 
 
 class Notes:

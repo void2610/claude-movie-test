@@ -32,11 +32,13 @@ def test_notes_roundtrip(tmp_path):
 def test_latest_findings_parses_review_md(tmp_path):
     (tmp_path / "reviews").mkdir()
     (tmp_path / "reviews" / "20260101-000000.md").write_text(
-        "# レビュー\n\n## エラー (1 件)\n\n- 8.30s `check: 青`: 0/20 点\n\n## 自動計測\n\n- 1.00s `x`: 無視\n",
+        "# レビュー\n\n## エラー (2 件)\n\n- 8.30s `check: 青`: 0/20 点\n"
+        "- [2] 9.10s `text-small`: 小さい — `project.py:12`\n\n## 自動計測\n\n- 1.00s `x`: 無視\n",
         encoding="utf-8")
     (tmp_path / "project.py").write_text("")
     st = Studio(str(tmp_path), 0.5, False, None)
-    assert st.findings == [{"t": 8.3, "rule": "check: 青", "detail": "0/20 点"}]
+    assert st.findings == [{"t": 8.3, "rule": "check: 青", "detail": "0/20 点"},
+                           {"t": 9.1, "rule": "text-small", "detail": "小さい — `project.py:12`"}]
 
 
 def test_apply_edits_renders_current_frame_without_reloading(tmp_path):
