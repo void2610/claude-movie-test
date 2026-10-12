@@ -44,11 +44,14 @@ def test_scaffold_renders(tmp_path):
 
 TEXT_ISSUES = '''
 from motion import Composition, scene, text
+from motion.checks import Waiver
 from motion.nodes import node
 
 
 def build():
     comp = Composition(width=640, height=360, fps=20, duration=2.0, background="#000000", linear=False)
+    comp.waivers.append(Waiver("text-small", "読ませない飾り", elements=("tin?",)))
+    comp.waivers.append(Waiver("text-overlap", "片方だけ当たる例外は効かない", elements=("title",)))
 
     @scene(0, 2.0)
     def s(c, ctx):
@@ -81,3 +84,5 @@ def test_text_findings_group_runs_and_point_to_code(tmp_path):
     assert by["text-overlap"].t == pytest.approx(0.5) and "0.50〜1.00s" in by["text-overlap"].detail
     assert by["text-cut"].t == pytest.approx(1.25) and "「edge」" in by["text-cut"].detail   # 滑り込みの途中は数えない
     assert all(fd.boxes and fd.frame is not None and "project.py:" in fd.where for fd in fds)
+    assert by["text-small"].waived == "読ませない飾り" and by["text-small"].elements == ["tiny"]
+    assert by["text-overlap"].waived is None and by["text-cut"].waived is None

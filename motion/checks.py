@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import fnmatch
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -31,6 +32,16 @@ class Waiver:
     reason: str
     times: tuple[float, float] = (0.0, 1e9)
     sides: tuple[str, ...] = ("left", "right", "top", "bottom")
+    # 文字の検査 (text-*) で例外にする要素のパターン (fnmatch)。要素の名前、表示名 (要素で囲まない文字は「文字「…」」)、
+    # 描いた関数の並び (「project.py:draw_args › ui.py:chip」。行がずれても変わる心配がない) のどれかに当てる。
+    # 空なら時刻の範囲の全部。指摘に関わる要素が全部当たったときだけ例外にする
+    elements: tuple[str, ...] = ()
+
+    def covers(self, ids: list[str], names: dict[str, tuple[str, ...]]) -> bool:
+        if not self.elements:
+            return True
+        return all(any(fnmatch.fnmatchcase(x, p) for p in self.elements for x in (i, *names.get(i, ())) if x)
+                   for i in ids)
 
 
 @dataclass
@@ -43,6 +54,7 @@ class Finding:
     frame: int | None = None                        # boxes を描くコマ
     boxes: list[tuple[float, float, float, float]] = field(default_factory=list)   # 問題の要素の範囲 (等倍)
     where: str = ""                                 # 要素を描いたコードの場所
+    elements: list[str] = field(default_factory=list)   # 指摘に関わる要素の名前
 
 
 def is_color(rgb: np.ndarray, target: str, tol: float = 60.0) -> bool:

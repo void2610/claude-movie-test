@@ -68,20 +68,22 @@ def text_findings(project, comp, workers=None) -> list:
     print(f"review: checking text in {comp.nframes} frames...", flush=True)
     with _pool(project, 0.25, False, False, workers) as pool:
         per = list(pool.imap(_text_facts_one, range(comp.nframes), chunksize=8))
-    names: dict[str, tuple[str, str]] = {}
+    names: dict[str, tuple[str, str, str]] = {}
     for facts in per:
         names.update(facts["names"])
 
     def label(i, f=None):
         # 中身が変わる文字 (時刻表示など) は、指摘したコマでの文字列で呼ぶ
         got = per[f]["names"].get(i) if f is not None else None
-        return (got or names.get(i, (i, "")))[0]
+        return (got or names.get(i, (i, "", "")))[0]
 
     def where(*ids):
-        return " / ".join(w for w in dict.fromkeys(names.get(i, ("", ""))[1] for i in ids) if w)
+        return " / ".join(w for w in dict.fromkeys(names.get(i, ("", "", ""))[1] for i in ids) if w)
 
-    def waived(rule, t):
-        return next((w.reason for w in comp.waivers if w.rule == rule and w.times[0] <= t <= w.times[1]), None)
+    def waived(rule, t, ids, f):
+        here = {i: (label(i, f), *names.get(i, ("", "", ""))[1:]) for i in ids}
+        return next((w.reason for w in comp.waivers
+                     if w.rule == rule and w.times[0] <= t <= w.times[1] and w.covers(ids, here)), None)
 
     def runs(hits: dict[int, tuple]) -> list[list[int]]:
         out: list[list[int]] = []
@@ -113,7 +115,7 @@ def text_findings(project, comp, workers=None) -> list:
             t0 = fs[0] / fps
             out.append(Finding("text-overlap", t0, f"「{label(a, f)}」と「{label(b, f)}」の文字が重なっている "
                                                    f"({t0:.2f}〜{(fs[-1] + 1) / fps:.2f}s、小さい方の {share:.0%})",
-                               None, waived("text-overlap", t0), f, [ba, bb], where(a, b)))
+                               None, waived("text-overlap", t0, [a, b], f), f, [ba, bb], where(a, b), [a, b]))
     phone = phone_scale(comp.width, comp.height)
     # 同じコードの行から描いた要素 (1 語ずつ描いたコード、同じ部品のカード) はまとめて 1 件にする
     small: dict[str, list[str]] = {}
@@ -127,7 +129,8 @@ def text_findings(project, comp, workers=None) -> list:
         more = f"ほか {len(ids) - 1} 個" if len(ids) > 1 else ""
         out.append(Finding("text-small", t, f"「{label(i, f)}」{more}の文字がスマホ (縦 360×780) で大文字の高さ "
                                             f"{cap * phone:.1f}px ({MIN_PHONE_CAP:.0f}px 以上。等倍では {cap:.0f}px)",
-                           None, waived("text-small", t), f, [best[x][2] for x in ids if best[x][1] == f], where(i)))
+                           None, waived("text-small", t, ids, f), f, [best[x][2] for x in ids if best[x][1] == f], where(i),
+                           ids))
     for i, hits in cut.items():
         still = {f: x for f, x in hits.items()
                  if f - 1 in hits and max(abs(a - b) for a, b in zip(x[1], hits[f - 1][1])) < CUT_STILL_PX}
@@ -138,7 +141,7 @@ def text_findings(project, comp, workers=None) -> list:
             f = fs[len(fs) // 2]
             out.append(Finding("text-cut", t0, f"「{label(i, f)}」の文字が画面の縁で切れている "
                                                f"({t0:.2f}〜{(fs[-1] + 1) / fps:.2f}s)",
-                               None, waived("text-cut", t0), f, [still[f][0]], where(i)))
+                               None, waived("text-cut", t0, [i], f), f, [still[f][0]], where(i), [i]))
     return sorted(out, key=lambda fd: fd.t)
 
 
@@ -284,7 +287,8 @@ def _find(comp, full: dict[int, np.ndarray], check_frames: dict[int, float], m: 
 
     def waive(rule, t, side=None):
         for w in comp.waivers:
-            if w.rule == rule and w.times[0] <= t <= w.times[1] and (side is None or side in w.sides):
+            if (w.rule == rule and w.times[0] <= t <= w.times[1] and (side is None or side in w.sides)
+                    and not w.elements):
                 return w.reason
         return None
 

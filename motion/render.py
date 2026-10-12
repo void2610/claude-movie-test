@@ -192,7 +192,7 @@ def _text_facts_one(f: int) -> dict:
                      for a, b, share in text_overlaps(e.seen)],
             "size": [(i, cap * k, full(r)) for i, cap, r in text_sizes(e.seen)],
             "cut": [(i, full(v), full(r)) for i, v, r in text_edge_cuts(e.seen, _R.w, _R.h)],
-            "names": {i: (e.labels.get(i, i), e.where.get(i, "")) for i in e.seen if e.seen[i].texts}}
+            "names": {i: (e.labels.get(i, i), e.where.get(i, ""), e.funcs.get(i, "")) for i in e.seen if e.seen[i].texts}}
 
 
 def _pool(project, scale, mb, post, workers):

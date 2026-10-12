@@ -74,7 +74,8 @@ class Edits:
         self.seen: dict[str, Seen] = {}
         self.spans: dict[str, tuple[float, float]] = {}
         self.labels: dict[str, str] = {}
-        self.where: dict[str, str] = {}   # 要素を描いたコードの場所 (review の指摘から直す箇所へ飛ぶため)
+        self.where: dict[str, str] = {}   # 要素を描いたコードの行 (review の指摘から直す箇所へ飛ぶため)
+        self.funcs: dict[str, str] = {}   # 要素を描いた関数の並び (行がずれても変わらないので、例外で要素を指すため)
         # 入れ子の要素: 親の名前と時刻 (子の時刻は親のずれも受ける)、親が記録中の子の一覧
         self._ids: list[tuple[str, float]] = []
         self._rec: list[list[Seen]] = []
@@ -157,8 +158,12 @@ class Node:
 _ENGINE = str(Path(__file__).resolve().parent)
 
 
-def _where() -> str:
-    """node を呼んだ作品のコードの場所。描く関数を挟むと、呼び出し元から順に「project.py:331 › 280」と並べる。"""
+def _where() -> tuple[str, str]:
+    """node や文字を描いた作品のコードの場所を、呼び出し元から順に (行の並び, 関数名の並び) で返す。
+
+    行の並び「project.py:331 › 280」は直す箇所へ飛ぶため、関数名の並び「project.py:captions › headline」は
+    行がずれても変わらないので、例外 (Waiver) で要素を指すために使う。
+    """
     f, out = sys._getframe(1), []
     while f is not None and len(out) < 3:
         fn = f.f_code.co_filename
@@ -166,13 +171,14 @@ def _where() -> str:
             if out:
                 break
         else:
-            out.append((Path(fn).name, f.f_lineno))
+            out.append((Path(fn).name, f.f_lineno, f.f_code.co_name))
         f = f.f_back
-    parts, prev = [], None
-    for name, line in reversed(out):
-        parts.append(str(line) if name == prev else f"{name}:{line}")
+    lines, funcs, prev = [], [], None
+    for name, line, func in reversed(out):
+        lines.append(str(line) if name == prev else f"{name}:{line}")
+        funcs.append(func if name == prev else f"{name}:{func}")
         prev = name
-    return " › ".join(parts)
+    return " › ".join(lines), " › ".join(funcs)
 
 
 # 描いている途中の要素と、描いている途中のコマの記録。文字を描く関数はどの要素の中で描かれたかを知らないのでここで引く。
@@ -236,7 +242,7 @@ def note_text(c: skia.Canvas, alpha: float, rect: tuple[float, float, float, flo
     e = getattr(_tls, "frame", None)
     if e is None:
         return
-    where = _where()
+    where, funcs = _where()
     name = f"文字「{' '.join(s.split())[:24]}」"
     vis = texts[0][2]
     k = 1
@@ -247,7 +253,7 @@ def note_text(c: skia.Canvas, alpha: float, rect: tuple[float, float, float, flo
             break
         k += 1
     e.labels[id] = name
-    e.where[id] = where
+    e.where[id], e.funcs[id] = where, funcs
     e.note(Seen(id, name, vis, (vis[0], vis[1]), space="text", texts=texts))
 
 
@@ -267,7 +273,7 @@ def node(c: skia.Canvas, ctx, id: str, *, origin: tuple[float, float] = (0.0, 0.
     o = e.of(id)
     n = Node(c, ctx, id, e)
     if id not in e.where:
-        e.where[id] = _where()
+        e.where[id], e.funcs[id] = _where()
     parent = e.parent()
     if span:
         e.spans[id] = span
