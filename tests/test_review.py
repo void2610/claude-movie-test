@@ -86,3 +86,5 @@ def test_text_findings_group_runs_and_point_to_code(tmp_path):
     assert all(fd.boxes and fd.frame is not None and "project.py:" in fd.where for fd in fds)
     assert by["text-small"].waived == "読ませない飾り" and by["text-small"].elements == ["tiny"]
     assert by["text-overlap"].waived is None and by["text-cut"].waived is None
+    # 文字の大きさはデザインの判断なので注意に留め、重なりと縁での見切れだけをエラーにする
+    assert by["text-small"].note and not by["text-overlap"].note and not by["text-cut"].note

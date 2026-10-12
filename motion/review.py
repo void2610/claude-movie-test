@@ -130,7 +130,7 @@ def text_findings(project, comp, workers=None) -> list:
         out.append(Finding("text-small", t, f"「{label(i, f)}」{more}の文字がスマホ (縦 360×780) で大文字の高さ "
                                             f"{cap * phone:.1f}px ({MIN_PHONE_CAP:.0f}px 以上。等倍では {cap:.0f}px)",
                            None, waived("text-small", t, ids, f), f, [best[x][2] for x in ids if best[x][1] == f], where(i),
-                           ids))
+                           ids, note=True))
     for i, hits in cut.items():
         still = {f: x for f, x in hits.items()
                  if f - 1 in hits and max(abs(a - b) for a, b in zip(x[1], hits[f - 1][1])) < CUT_STILL_PX}
@@ -406,9 +406,10 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     W = max(3 * (tw + 12) + 380, 7 * (int(tw * 0.55) + 6) + 40, 1400)
     row_h = th + 50
     cut_h = int(th * 0.55) + 44
-    errors = [fd for fd in findings if fd.waived is None]
-    views = [_error_view(i, fd, full, fps) for i, fd in enumerate(errors, 1)]
-    err_h = (sum(h for _, _, h in views) + 60) if errors else 60
+    errors = [fd for fd in findings if fd.waived is None and not fd.note]
+    notes = [fd for fd in findings if fd.waived is None and fd.note]
+    views = [_error_view(i, fd, full, fps) for i, fd in enumerate(errors + notes, 1)]
+    err_h = sum(h for _, _, h in views) + 60 + (50 if notes else 0)
     detail_h = len(shots) * 360 + 60
     H = (120 + err_h + len(shots) * row_h + len(cut_frames) * cut_h + 260 + max(i.shape[0] for i in phone.values())
          + 120 + detail_h + 430)
@@ -423,16 +424,19 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     if errors:
         sh.text(f"エラー {len(errors)} 件 (直すか、理由つきの Waiver を書くまで完了にしない)", 24, y + 10, 20, WARN)
         y += 40
-        for i, (fd, (img, w, h)) in enumerate(zip(errors, views), 1):
-            sh.text(f"[{i}] {fd.t:.2f}s  {fd.rule}: {fd.detail}"[:110], 24, y + 10, 15, WARN)
-            if fd.where:
-                sh.text(fd.where, 24, y + 30, 13, DIM, font="mono")
-            if img is not None:
-                sh.image(img, 24, y + (48 if fd.where else 26), w)
-            y += h
     else:
         sh.text("エラー 0 件", 24, y + 10, 20, OK)
         y += 50
+    for i, (fd, (img, w, h)) in enumerate(zip(errors + notes, views), 1):
+        if i == len(errors) + 1:
+            sh.text(f"注意 {len(notes)} 件 (直すかはデザインの判断。レビューの合否には数えない)", 24, y + 10, 20, DIM)
+            y += 50
+        sh.text(f"[{i}] {fd.t:.2f}s  {fd.rule}: {fd.detail}"[:110], 24, y + 10, 15, DIM if fd.note else WARN)
+        if fd.where:
+            sh.text(fd.where, 24, y + 30, 13, DIM, font="mono")
+        if img is not None:
+            sh.image(img, 24, y + (48 if fd.where else 26), w)
+        y += h
 
     for s in shots:
         sh.text(f"{s.name}", 24, y + 10, 20)
@@ -516,6 +520,10 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     waived = [fd for fd in findings if fd.waived is not None]
     if waived:
         lines += ["", "例外として扱ったもの:"] + [f"- {fd.t:.2f}s `{fd.rule}`: {fd.waived}" for fd in waived]
+    if notes:
+        lines += ["", f"## 注意 ({len(notes)} 件。直すかはデザインの判断で、レビューの合否には数えない)", ""]
+        lines += [f"- [{i}] {fd.t:.2f}s `{fd.rule}`: {fd.detail}" + (f" — `{fd.where}`" if fd.where else "")
+                  for i, fd in enumerate(notes, len(errors) + 1)]
     lines += ["", "## 自動計測", "",
              f"- ペース: {pace} (画面の大きな変化 {len(m.changes)} 回)",
              f"- 静止の割合: {m.rest_ratio:.0%} (目安 40〜60%)",
@@ -561,4 +569,6 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     print(f"-> {png}\n-> {md}")
     for fd in errors:
         print(f"ERROR {fd.t:.2f}s {fd.rule}: {fd.detail}" + (f"  ({fd.where})" if fd.where else ""))
+    if notes:
+        print(f"注意 {len(notes)} 件 (文字の大きさなど。合否には数えない。review.md を見る)")
     return ReviewResult(png, md, errors)

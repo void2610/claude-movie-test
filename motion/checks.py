@@ -55,6 +55,8 @@ class Finding:
     boxes: list[tuple[float, float, float, float]] = field(default_factory=list)   # 問題の要素の範囲 (等倍)
     where: str = ""                                 # 要素を描いたコードの場所
     elements: list[str] = field(default_factory=list)   # 指摘に関わる要素の名前
+    # 注意: 直すかどうかはデザインの判断 (文字の大きさなど) なので、レビューの合否には数えない
+    note: bool = False
 
 
 def is_color(rgb: np.ndarray, target: str, tol: float = 60.0) -> bool:
