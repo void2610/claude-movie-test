@@ -60,3 +60,10 @@
 - 無認証の上限: 20 回/分、200 回/日。1 回の検索で最大 240 件まで (`result_count` が 240 で頭打ち)
 - freesound の環境音 (room tone・雨・街) は CC0 だけでも十分ある。「office ambience」は CC0 が 76 件、CC BY を含めると 136 件
 - 音楽 (jamendo) は CC BY-NC / ND などが多く、作品の音楽は Surge XT で作っているので使わない
+
+## 4. Strudel で音楽を書く (@ozzyxs1a, 2026-10-16 調査)
+
+- 投稿は「Claude だけで音楽を作れる」の 1 行と動画。作者が返信で認めたとおり Strudel (TidalCycles をブラウザに移したライブコーディング環境)。パターンのコードを書くと鳴り、コードの上に絵が重なる
+- TidalCycles の短い記法 (mini-notation): `"bd*4, ~ cp, hh*8"` のように、空白で 1 周期 (1 小節) を等分し、`~` 休符、`[ ]` 細分、`< >` 周期ごとに交互、`*` `/` 速さ、`,` 重ね、`(3,8)` ユークリッドリズム、`:n` サンプルの番号、`!` `@` 繰り返し・伸ばし、`?` 間引き。既定のサンプル名 (bd・sd・hh・cp…) は Dirt-Samples と同じで、このリポジトリにもある
+- このエンジンの音楽は Python のループで 1 音ずつ時刻を書いている (`mx.hit("808bd", tl.beat(i))` を for で回す)。キック・ハイハット・ベースだけで 10 行ほどになる
+- Python から Strudel や Tidal を使う道は無い: Strudel は WebAudio 前提でオフラインの決定的な書き出しが難しく、Surge XT・自動の音量決め・音の検査と組めない。Python 版の `tidalvortex` は 2022 年の 0.1.0a0 で Python 3.10 まで
