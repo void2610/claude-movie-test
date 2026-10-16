@@ -98,8 +98,8 @@ def main() -> None:
     vr.add_argument("project")
     vr.add_argument("--scale", type=float, default=0.5)
 
-    fx = sub.add_parser("sfx", help="録音の効果音ライブラリ (kit / browse / search / add / sheet)")
-    fx.add_argument("action", choices=["kit", "browse", "search", "add", "sheet"])
+    fx = sub.add_parser("sfx", help="録音の効果音ライブラリ (kit / ambience / browse / search / add / sheet)")
+    fx.add_argument("action", choices=["kit", "ambience", "browse", "search", "add", "sheet"])
     fx.add_argument("args", nargs="*", help="browse: 種類 / search: 検索語 / add・sheet: ファイル")
     fx.add_argument("--type", help="search / add の種類")
     fx.add_argument("--like", default="", help="browse: 素材・重さ・雰囲気の語 (例: \"metal heavy\")")
@@ -110,6 +110,8 @@ def main() -> None:
     fx.add_argument("--dark", dest="tone", action="store_const", const="dark")
     fx.add_argument("--tags", default="")
     fx.add_argument("--credit", default="", help="add: 出典とライセンス")
+    fx.add_argument("--by", action="store_true", help="search: CC BY も探す (使った作品に出典の表記が要る)")
+    fx.add_argument("--license", default="cc0", help="add: 手元のファイルのライセンス (cc0 以外は出典の表記に出る)")
     fx.add_argument("-o", "--out", default="build/sfx.png", help="波形とスペクトログラムの画像")
 
     for p_ in (r, s, st, a, pv, rv, on):
@@ -139,6 +141,10 @@ def main() -> None:
         if args.action == "kit":
             sfxlib.kit()
             return
+        if args.action == "ambience":
+            for sd in sfxlib.ambience_kit():
+                print(f"{sd['file']}  {sd['dur_s']:.0f}s  {sd['verdict']}")
+            return
         if args.action == "browse":
             if not args.args:
                 raise SystemExit("種類: " + ", ".join(f"{k} ({v['about']})" for k, v in sfxlib.TYPES.items()))
@@ -151,7 +157,7 @@ def main() -> None:
         if args.action == "search":
             if not args.type:
                 raise SystemExit("--type が要る")
-            sides = sfxlib.search(" ".join(args.args), args.type, args.n)
+            sides = sfxlib.search(" ".join(args.args), args.type, args.n, by=args.by)
             for sd in sides:
                 print(f"{sd['file']}  {sd['dur_s']:.2f}s  {sd['verdict']}  {sd.get('source', {}).get('title', '')}")
             if sides:
@@ -160,7 +166,7 @@ def main() -> None:
         if args.action == "add":
             if not args.type:
                 raise SystemExit("--type が要る")
-            for sd in sfxlib.add(args.args, args.type, sfxlib.words(args.tags), args.credit):
+            for sd in sfxlib.add(args.args, args.type, sfxlib.words(args.tags), args.credit, license=args.license):
                 print(f"{sd['file']}  {sd['verdict']}")
             return
         print(f"-> {sfxlib.sheet(args.args, args.out)}")

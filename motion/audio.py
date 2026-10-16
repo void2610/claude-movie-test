@@ -404,6 +404,7 @@ class Mix:
         self._bufs: list[tuple[dict, np.ndarray, float]] = []
         self._loop = False
         self.stops: list[dict] = []
+        self.ambiences: list[dict] = []
         self.builds: list[dict] = []
         self.room_params: tuple[float, float] | None = (0.6, -16.0)
 
@@ -582,6 +583,30 @@ class Mix:
             np.save(tmp, y)
             os.replace(tmp, path)
         self.bus(bus)[:, :y.shape[1]] += y[:, :self.n] * db(gain_db)
+
+    def ambience(self, ref: str | np.ndarray, *, start: float = 0.0, end: float | None = None, level_db: float = -34.0,
+                 fade: float = 1.5, bus: str = "ambience") -> None:
+        """環境音 (sfxlib の種類 ambience の id か検索語、または波形) を start から end まで輪にして敷く。
+
+        level_db は環境音の RMS (dBFS)。音楽のバスとして扱うので、効果音の音量決めでは音楽の一部になる。
+        """
+        from . import sfxlib
+        y = sfxlib.bed(ref) if isinstance(ref, str) else np.asarray(ref, np.float32)
+        end = self.duration if end is None else end
+        n = int((end - start) * self.sr)
+        if n <= 0 or len(y) == 0:
+            return
+        y = np.tile(y, n // len(y) + 1)[:n].astype(np.float32)
+        y *= 10 ** (level_db / 20) / (np.sqrt(np.mean(y ** 2)) + 1e-12)
+        k = min(int(fade * self.sr), n // 2)
+        if k > 0:
+            ramp = np.linspace(0, 1, k, dtype=np.float32)
+            y[:k] *= ramp
+            y[-k:] *= ramp[::-1]
+        self.place(y, start, 0.0, 0.0, bus)
+        if isinstance(ref, str):
+            e = sfxlib.browse("ambience", ref, n=1)[0] if "/" not in ref else {"id": ref}
+            self.ambiences.append(dict(t=float(start), end=float(end), origin=e["id"], bus=bus))
 
     def pattern(self, pat: str, tl, *, start: float | None = None, end: float | None = None, bus: str = "drums",
                 gain_db: float = 0.0, pan: float = 0.0, patch: str | Path | None = None, wave: str | None = None,
@@ -767,6 +792,15 @@ class Mix:
         report = dict(duration=self.duration, lufs=lufs, ceiling_db=ceiling_db, gain_db=round(20 * math.log10(gy), 2),
                       loop=loop, sfx_buses=sfx_buses, events=self.events,
                       stops=[dict(t=x["t"], dur=x["dur"], fill=x["fill"]) for x in self.stops],
+                      ambience=self.ambiences,
                       builds=[dict(t=x["t"], dur=x["dur"]) for x in self.builds])
         Path(f"{base}.mix.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+        from . import sfxlib
+        # CC BY の録音を使ったら、投稿や説明に書く出典の表記を横に置く
+        lines = sfxlib.credits([e["origin"] for e in self.events] + [a["origin"] for a in self.ambiences])
+        cred = Path(f"{base}.credits.txt")
+        if lines:
+            cred.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        elif cred.exists():
+            cred.unlink()
         return str(path)

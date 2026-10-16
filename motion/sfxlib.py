@@ -15,11 +15,13 @@
 from __future__ import annotations
 
 import concurrent.futures
+import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
+import time
 import urllib.parse
 import urllib.request
 import zipfile
@@ -66,7 +68,11 @@ TYPES = {
     "chime": dict(kind="tonal", win=(0.25, 2.50), hp=200, lp=14000, hi_max=0.6, about="ベル・ディン・グラスの響き"),
     "shimmer": dict(kind="tonal", win=(0.40, 3.50), hp=300, lp=16000, hi_max=0.75, noise_ok=True,
                     about="きらめき (見せ場の出現に重ねる)"),
+    "ambience": dict(kind="bed", win=(20.0, 60.0), hp=40, lp=16000, about="環境音 (部屋の空気・雨・街・カフェ)。Mix.ambience で音楽の下に敷く"),
 }
+
+# 環境音を音楽の下に輪にして敷くとき、つなぎ目を重ねる長さ
+BED_XFADE = 2.0
 
 
 # ---------------------------------------------------------------- 加工と判定
@@ -256,9 +262,56 @@ def _write_wav(path: Path, x: np.ndarray) -> None:
         f.write(x.astype(np.float32)[None, :])
 
 
+def prepare_bed(src: str | Path, out_dir: Path, name: str, meta: dict | None = None) -> dict:
+    """環境音: 切り出さずに最大 60 秒を取り、端を重ねて輪にして wav と .json を書く。途中に目立つ音があれば不合格。"""
+    t = TYPES["ambience"]
+    y = decode(src)
+    trim = int(0.5 * SR)
+    y = y[trim:-trim] if len(y) > 4 * trim else y
+    keep = int((t["win"][1] + BED_XFADE) * SR)
+    if len(y) > keep:
+        a = (len(y) - keep) // 2
+        y = y[a:a + keep]
+    y = signal.sosfilt(signal.butter(2, t["hp"], "highpass", fs=SR, output="sos"), y)
+    xf = int(BED_XFADE * SR)
+    if len(y) > 3 * xf:
+        # 終わりの xf を頭に等しい力で重ね、終わりから頭へ途切れずにつながるようにする
+        k = np.linspace(0, np.pi / 2, xf)
+        head = y[:xf] * np.sin(k) + y[-xf:] * np.cos(k)
+        y = np.concatenate([head, y[xf:-xf]])
+    y = y / (np.sqrt(np.mean(y ** 2)) + 1e-12) * 10 ** (-20 / 20)
+    sec = np.sqrt(np.mean(y[:len(y) // SR * SR].reshape(-1, SR) ** 2, axis=1)) if len(y) >= SR else np.array([1.0])
+    spread = float(20 * np.log10(sec.max() / (np.median(sec) + 1e-12) + 1e-12))
+    # 輪にして繰り返すので、一瞬でも音が抜けると穴として何度も聞こえる
+    hole = float(20 * np.log10(np.median(sec) / (sec.min() + 1e-12) + 1e-12))
+    spec = np.abs(np.fft.rfft(y[:SR * 8])) ** 2
+    fr = np.fft.rfftfreq(min(len(y), SR * 8), 1 / SR)
+    tot = spec.sum() + 1e-20
+    m = dict(dur_s=round(len(y) / SR, 2), peak_s=0.0, rise_ms=0.0,
+             centroid_hz=int((spec * fr).sum() / tot), below150=round(float(spec[fr < 150].sum() / tot), 3),
+             above6k=round(float(spec[fr > 6000].sum() / tot), 3), flatness=0.0, note=None,
+             spread_db=round(spread, 1), hole_db=round(hole, 1))
+    why = []
+    if m["dur_s"] < t["win"][0]:
+        why.append(f"短い ({m['dur_s']:.0f} 秒、{t['win'][0]:.0f} 秒以上)")
+    if spread > 8:
+        why.append(f"途中に目立つ音がある (1 秒ごとの音量の山が中央値より {spread:.0f}dB 大きい)")
+    if hole > 10:
+        why.append(f"途中で途切れる (1 秒ごとの音量の谷が中央値より {hole:.0f}dB 小さい)")
+    dst = out_dir / f"{name}.wav"
+    _write_wav(dst, y)
+    side = dict(type="ambience", file=str(dst), verdict="ok" if not why else "不合格: " + "、".join(why), **m)
+    if meta:
+        side["source"] = meta
+    dst.with_suffix(".json").write_text(json.dumps(side, ensure_ascii=False, indent=1), encoding="utf-8")
+    return side
+
+
 def prepare(src: str | Path, typ: str, out_dir: Path, name: str, meta: dict | None = None, k: int = 1) -> list[dict]:
     """1 つのファイルから最大 k 個を切り出し、掃除・計測・判定して wav と .json を書く。"""
     t = TYPES[typ]
+    if t["kind"] == "bed":
+        return [prepare_bed(src, out_dir, name, meta)]
     evs = cut_events(decode(src), t, k)
     out = []
     for i, (_, y) in enumerate(evs):
@@ -291,9 +344,12 @@ def words(s: str) -> list[str]:
 
 # ---------------------------------------------------------------- ライブラリ
 
-def _fetch(url: str, dst: Path) -> None:
+def _fetch(url: str, dst: Path, limit: int | None = None) -> None:
     # 途中で切れたファイルを取得済みと見なさないよう、.part に書いてから置き換える
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    headers = {"User-Agent": UA}
+    if limit:
+        headers["Range"] = f"bytes=0-{limit - 1}"
+    req = urllib.request.Request(url, headers=headers)
     dst.parent.mkdir(parents=True, exist_ok=True)
     part = dst.with_name(dst.name + ".part")
     with urllib.request.urlopen(req, timeout=120) as r:
@@ -301,7 +357,7 @@ def _fetch(url: str, dst: Path) -> None:
     part.replace(dst)
 
 
-def _fetch_all(jobs: list[tuple[str, Path]], workers: int = 16) -> dict[Path, Exception]:
+def _fetch_all(jobs: list[tuple[str, Path]], workers: int = 16, limit: int | None = None) -> dict[Path, Exception]:
     todo = [(u, d) for u, d in jobs if not d.exists()]
     if not todo:
         return {}
@@ -311,7 +367,7 @@ def _fetch_all(jobs: list[tuple[str, Path]], workers: int = 16) -> dict[Path, Ex
     def one(job):
         u, d = job
         try:
-            _fetch(u, d)
+            _fetch(u, d, limit)
         except Exception as ex:  # noqa: BLE001
             return d, ex
         return d, None
@@ -325,11 +381,11 @@ def _fetch_all(jobs: list[tuple[str, Path]], workers: int = 16) -> dict[Path, Ex
     return errors
 
 
-def _entry(side: dict, root: Path, tags: list[str], credit: str, default: bool) -> dict:
+def _entry(side: dict, root: Path, tags: list[str], credit: str, default: bool, license: str = "cc0") -> dict:
     rel = Path(side["file"]).relative_to(root).as_posix()
     keys = ("dur_s", "peak_s", "rise_ms", "centroid_hz", "below150", "above6k", "flatness", "note")
     return dict(id=rel[:-4], type=side["type"], file=rel, tags=sorted(set(tags)), credit=credit, default=default,
-                **{k: side[k] for k in keys})
+                license=license, **{k: side[k] for k in keys})
 
 
 def _write_catalog(root: Path, entries: list[dict], credits: list[str]) -> None:
@@ -341,7 +397,8 @@ def _write_catalog(root: Path, entries: list[dict], credits: list[str]) -> None:
                               defaults=[e["id"] for e in by_type.get(k, []) if e["default"]]) for k in TYPES},
                sounds=entries)
     (root / "catalog.json").write_text(json.dumps(cat, ensure_ascii=False, indent=1), encoding="utf-8")
-    head = ["# 効果音の出典", "", "Kenney のパックと Freesound の録音は CC0 (パブリックドメイン)。表記は不要だが残す。", ""]
+    head = ["# 効果音の出典", "", "Kenney のパックと Freesound の録音は CC0 (パブリックドメイン)。表記は不要だが残す。",
+            "CC BY の音 (search --by で足したもの) は、使った作品の投稿や説明に出典を書く (書き出しの credits.txt)。", ""]
     (root / "CREDITS.md").write_text("\n".join(head + sorted(set(credits))) + "\n", encoding="utf-8")
     catalog.cache_clear()
 
@@ -497,18 +554,38 @@ def sound(ref: str, i: int = 0, like: str = "", pitch: float = 0.0, root: Path =
     return Sound(buf.copy(), e["peak_s"], e["id"]).pitched(pitch)
 
 
-def search(query: str, typ: str, n: int = 6, root: Path = LIB) -> list[dict]:
-    """ライブラリに合う音が無いとき、Openverse (Freesound の CC0) を探して加工・判定する。候補は root/_candidates。"""
-    q = urllib.parse.urlencode(dict(q=query, license="cc0", source="freesound", page_size=n, filter_dead="true"))
-    req = urllib.request.Request("https://api.openverse.org/v1/audio/?" + q, headers={"User-Agent": UA})
+def _openverse(query: str, licenses: tuple[str, ...], n: int, root: Path, max_age_days: float = 7.0) -> list[dict]:
+    """Openverse の検索。無認証は 1 日 200 回までなので、同じ検索は max_age_days のあいだ保存した結果を使う。"""
+    params = dict(q=query, license=",".join(licenses), source="freesound", page_size=n, filter_dead="true")
+    key = hashlib.sha1(json.dumps(params, sort_keys=True).encode()).hexdigest()[:16]
+    cache = root / "_search" / f"{key}.json"
+    if cache.exists() and time.time() - cache.stat().st_mtime < max_age_days * 86400:
+        return json.loads(cache.read_text(encoding="utf-8"))
+    req = urllib.request.Request("https://api.openverse.org/v1/audio/?" + urllib.parse.urlencode(params),
+                                 headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=60) as r:
         res = json.load(r)["results"]
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
+    return res
+
+
+def search(query: str, typ: str, n: int = 6, root: Path = LIB, by: bool = False) -> list[dict]:
+    """ライブラリに合う音が無いとき、Openverse (Freesound の CC0、by=True なら CC BY も) を探して加工・判定する。
+
+    候補は root/_candidates。CC BY の音は使った作品に出典の表記が要る (書き出しの credits.txt に出る)。
+    """
     out = []
+    res = _openverse(query, ("cc0", "by") if by else ("cc0",), n, root)
+    raw = {r["id"]: root / "_candidates" / typ / "_raw" / f"ov-{r['id'][:8]}.mp3" for r in res}
+    # 環境音は長い録音の頭 60 秒あまりしか使わないので、頭だけ取る (丸ごとだと 1 本数 MB で遅い)
+    failed = _fetch_all([(r["url"], raw[r["id"]]) for r in res], workers=8,
+                        limit=2_500_000 if TYPES[typ]["kind"] == "bed" else None)
     for r in res:
-        rawf = root / "_candidates" / typ / "_raw" / f"ov-{r['id'][:8]}.mp3"
+        rawf = raw[r["id"]]
         try:
-            if not rawf.exists():
-                _fetch(r["url"], rawf)
+            if rawf in failed:
+                raise failed[rawf]
             meta = dict(title=r.get("title"), creator=r.get("creator"), license=r.get("license"), url=r.get("url"),
                         landing=r.get("foreign_landing_url"))
             out += prepare(rawf, typ, root / "_candidates" / typ, f"ov-{r['id'][:8]}", meta)
@@ -517,7 +594,8 @@ def search(query: str, typ: str, n: int = 6, root: Path = LIB) -> list[dict]:
     return out
 
 
-def add(files: list[str | Path], typ: str, tags: list[str] | None = None, credit: str = "", root: Path = LIB) -> list[dict]:
+def add(files: list[str | Path], typ: str, tags: list[str] | None = None, credit: str = "", root: Path = LIB,
+        license: str = "cc0") -> list[dict]:
     """手元のファイルや search の候補をライブラリに足す (kit で作り直しても残る)。判定に落ちても警告して残す。"""
     added = _added(root)
     cat = catalog(root)
@@ -531,8 +609,14 @@ def add(files: list[str | Path], typ: str, tags: list[str] | None = None, credit
         if not c and meta and meta.get("creator"):
             c = f"\"{meta.get('title')}\" by {meta.get('creator')}, {str(meta.get('license', '')).upper()}, {meta.get('landing', '')}"
         c = c or "手で追加 (--credit に出典とライセンスを書く)"
+        lic = str((meta or {}).get("license") or license).lower()
+        # 検索の候補は名前が ID なので、出典の題名の語をタグにする
+        names = words((meta or {}).get("title", "")) if f.stem.startswith("ov-") else words(f.stem)
         for side in prepare(f, typ, root / typ, "own-" + slug(f.stem), meta):
-            e = _entry(side, root, (tags or []) + words(f.stem) + ["own"], c, False)
+            e = _entry(side, root, (tags or []) + names + ["own"], c, False, lic)
+            old = next((x for x in entries if x["id"] == e["id"]), None)
+            if old:
+                e["tags"] = sorted(set(e["tags"]) | set(old["tags"]))
             entries = [x for x in entries if x["id"] != e["id"]] + [e]
             added = [x for x in added if x["id"] != e["id"]] + [e]
             out.append(side)
@@ -540,6 +624,45 @@ def add(files: list[str | Path], typ: str, tags: list[str] | None = None, credit
     lines = [ln for ln in (root / "CREDITS.md").read_text(encoding="utf-8").splitlines() if ln.startswith("- ")]
     _write_catalog(root, entries, lines + [f"- {e['id']}: {e['credit']}" for e in added])
     return out
+
+
+def credits(ids: list[str], root: Path = LIB) -> list[str]:
+    """使った音のうち、出典の表記が要るもの (CC0 以外) の表記。"""
+    try:
+        by_id = {e["id"]: e for e in catalog(root)["sounds"]}
+    except FileNotFoundError:
+        return []
+    out = []
+    for i in dict.fromkeys(ids):
+        e = by_id.get(i)
+        if e and e.get("license", "cc0") != "cc0":
+            out.append(f"{i}: {e['credit']}")
+    return out
+
+
+def bed(ref: str, root: Path = LIB) -> np.ndarray:
+    """環境音 (種類 ambience) を、輪にしてつなげられる 1 本の波形 (モノラル) で返す。"""
+    from .audio import load
+    e = entry(ref, root) if "/" in ref else browse("ambience", ref, n=1, root=root)[0]
+    return load(str(root / e["file"])).mean(axis=0)
+
+
+AMBIENCE_KIT = ["room tone", "rain ambience", "city street ambience", "cafe ambience", "office ambience",
+                "forest ambience", "wind ambience", "night crickets ambience"]
+
+
+def ambience_kit(root: Path = LIB, queries: list[str] = AMBIENCE_KIT, per: int = 2) -> list[dict]:
+    """環境音のひと揃え: 検索語ごとに CC0 の候補から合格したものを per 個ずつ足す。"""
+    added = []
+    for q in queries:
+        sides = [sd for sd in search(q, "ambience", n=8, root=root) if sd["verdict"] == "ok"]
+        # 途中に目立つ音が無いだけでは別物 (ドローン等) も通るので、題名に検索語を含むものを先にする
+        hit = lambda sd: len(set(words(q)) - {"ambience"} & set(words(sd.get("source", {}).get("title", ""))))  # noqa: E731
+        sides = sorted(sides, key=lambda sd: (-hit(sd), sd["spread_db"]))[:per]
+        if sides:
+            added += add([sd["file"] for sd in sides], "ambience", words(q), root=root)
+        print(f"sfx: {q}: {len(sides)} 個", flush=True)
+    return added
 
 
 def describe(e: dict) -> str:

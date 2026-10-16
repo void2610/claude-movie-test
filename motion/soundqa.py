@@ -192,6 +192,10 @@ def check(comp, wav: str | Path | None, diff: np.ndarray) -> SoundQA:
     events = sorted(report["events"], key=lambda e: e["t"])
     q.events = events
     env = peak_env(sfx)
+    cred = Path(f"{base}.credits.txt")
+    if cred.exists():
+        n = len(cred.read_text(encoding="utf-8").splitlines())
+        warn("sound: 出典の表記", 0.0, f"CC BY の録音 {n} 個: 投稿や説明に {cred.name} の出典を書く")
     synth = [e for e in events if e["origin"] == "synth"]
     if synth:
         warn("sound: 合成の効果音", synth[0]["t"],

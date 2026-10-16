@@ -39,6 +39,7 @@ uv run python -m motion patches pads/                   # Surge XT のパッチ�
 uv run python -m motion audition pads/ -n 8             # 候補を同じ和音で順に鳴らした build/audition.wav
 uv run python -m motion sfx browse hit --like "metal heavy"  # 効果音の候補と波形・スペクトログラムの画像 (build/sfx.png)
 uv run python -m motion sfx search "page turn" --type paper  # ライブラリに無い音を CC0 から探す → sfx add で足す
+uv run python -m motion sfx ambience                     # 環境音のひと揃えを Openverse の CC0 から取り込む
 uv run python -m motion analyze song.mp3                # 既存の曲の BPM・小節頭・強いオンセット
 uv run python -m motion scan capture.mp4 --top 6        # キャプチャの見せ場の候補とシーンの切れ目 (グラフ画像つき)
 uv run python -m motion render projects/devlog --set aspect=9:16          # build(aspect="9:16") で書き出す
@@ -65,7 +66,7 @@ uv run pytest                                           # テスト (描画を�
 | `post` | `bloom` `chroma` `grain` `vignette` `glitch` `scanlines` `flash` `grade`。引数に `lambda ctx: ...` を渡せる。光学系はリニア空間、演出系 (`fx.space = "display"`) は sRGB で処理される |
 | `media` | `Image` / `Video` (動画は `comp.prepare.append(clip.prepare)` で作品の fps にフレームを書き出す)、`fit="cover" / "contain"` |
 | `audio` | `Mix`: `hit` (サンプル)、`tone` (内蔵シンセ)、`instrument` (Surge XT 等の VST3。`patch="Pads/MKS-70 Warm Pad"` でパッチ指定)、`file` (音声・動画の音)、`clip` (Clip の音を速度変化に追従させる。フリーズ中は無音)、`sfx`、`pattern` (TidalCycles / Strudel の記法で 1 小節を 1 周期として鳴らす。`mx.pattern("808bd*4, ~ cp, 808hc*8?", tl)`、音名は `patch=` で Surge XT)、`fx` `duck`、`render` で LUFS を揃えて wav 出力。音楽のリズムとフレーズは for 文より `pattern` で書く |
-| `sfxlib` | 録音の効果音 1,139 個 (CC0、19 種)。`sfxlib.sound("hit/<id>")` を `mx.sfx(sound, t)` で山を t に合わせて置く。打撃・クリック・風切りはここから選び、合成しない。`gain_db=None` で音楽に対して浮く音量を自動で決め、`mx.hero(t, hit, boom, riser)` で見せ場 (打撃・低音・ライザーを山で揃えて重ねる) を作る。BGM は見せ場の前でも止めたり細らせたりしない (`stop_before` / `build` は拍の無い作品だけ) |
+| `sfxlib` | 録音の効果音 1,139 個 (CC0、19 種)。`sfxlib.sound("hit/<id>")` を `mx.sfx(sound, t)` で山を t に合わせて置く。打撃・クリック・風切りはここから選び、合成しない。`gain_db=None` で音楽に対して浮く音量を自動で決め、`mx.hero(t, hit, boom, riser)` で見せ場 (打撃・低音・ライザーを山で揃えて重ねる) を作る。環境音 (種類 `ambience`、`motion sfx ambience` で部屋の空気・雨・街・カフェ・オフィス・森・風・夜の虫) は `mx.ambience("rain", level_db=-34)` で音楽の下に輪にして敷く。CC BY の音 (`sfx search --by`) を使うと書き出しの横に `credits.txt` ができ、投稿に出典を書く。BGM は見せ場の前でも止めたり細らせたりしない (`stop_before` / `build` は拍の無い作品だけ) |
 | `soundqa` | review の音の検査: Cue の kind と書き出した絵の動き、効果音の置き場所、自分の帯域で浮くか、見せ場、ラウドネス・真のピーク・無音。review.md に「耳で確かめる時刻」を出す |
 | `sfx` | 合成の効果音 (`whoosh` `riser` `impact` `click` `glitch` `reverse_swell`)。録音が無い音の試作用 |
 | `analysis` | `analyze(path)` で BPM・拍・小節頭・オンセット。`info.timeline()` で Timeline にできる。小節頭がずれたら `shift_downbeats(n)` |
