@@ -583,6 +583,39 @@ class Mix:
             os.replace(tmp, path)
         self.bus(bus)[:, :y.shape[1]] += y[:, :self.n] * db(gain_db)
 
+    def pattern(self, pat: str, tl, *, start: float | None = None, end: float | None = None, bus: str = "drums",
+                gain_db: float = 0.0, pan: float = 0.0, patch: str | Path | None = None, wave: str | None = None,
+                legato: float = 1.0, velocity: int = 100, octave: int = 3) -> list[dict]:
+        """TidalCycles / Strudel の記法で鳴らす。1 周期 = tl の 1 小節で、start (既定は最初の小節頭) から end まで繰り返す。
+
+        patch (Surge XT) か wave (内蔵シンセ) を渡すと音名・数を音高として弾き、それ以外は Dirt-Samples の名前
+        (「808bd:3」) として鳴らす。返り値は鳴らした音 (t, dur, value, span) で、overlay.pattern_code に渡すと
+        画面のコードの、鳴っている語を光らせられる。
+        """
+        from . import pattern as pt
+        cycle = tl.bar_len
+        start = tl.offset if start is None else start
+        end = self.duration if end is None else end
+        n = max(math.ceil((end - start) / cycle - 1e-9), 0)
+        out, notes = [], []
+        for e in pt.events(pat, n):
+            t = start + float(e.start) * cycle
+            if t >= end - 1e-9:
+                continue
+            dur = float(e.end - e.start) * cycle
+            out.append(dict(t=t, dur=dur, value=e.value, span=e.span, pattern=pat))
+            num = pt.note_number(e.value, octave) if (patch is not None or wave) else None
+            if num is not None:
+                notes.append((t, dur * legato, num, velocity))
+            else:
+                name, idx = pt.sample_name(e.value)
+                self.hit(name, t, i=idx, gain_db=gain_db, pan=pan, bus=bus)
+        if notes and patch is not None:
+            self.instrument(notes, patch=patch, bus=bus, gain_db=gain_db)
+        for t, d, num, _ in (notes if patch is None else []):
+            self.tone(t, d, num, wave=wave, gain_db=gain_db, pan=pan, bus=bus)
+        return out
+
     def fx(self, bus: str, *plugins) -> None:
         self.chains[bus] = list(plugins)
 

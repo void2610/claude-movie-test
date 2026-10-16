@@ -1,4 +1,4 @@
-"""キャプチャの上に重ねる注釈: 吹き出し、強調、ロワーサード、字幕、バッジ。"""
+"""キャプチャの上に重ねる注釈: 吹き出し、強調、ロワーサード、字幕、バッジ、鳴っている語が光る音楽のコード。"""
 from __future__ import annotations
 
 import re
@@ -105,6 +105,47 @@ def badge(c: skia.Canvas, x: float, y: float, label: str, p: float, *, color: Co
     c.drawRRect(skia.RRect.MakeRectXY(skia.Rect.MakeXYWH(-w / 2, -h / 2, w, h), 10, 10), paint(color))
     text(c, label, 0, 0, size=size, axes={"wght": 900, "wdth": 110}, color=fg, align="center", valign="cap")
     c.restore()
+
+
+def pattern_code(c: skia.Canvas, ctx: Ctx, code: str, played: list[dict], x: float, y: float, *,
+                 size: float = 28, font: str = "mono", color: Color | str = "#8B8B95", hi: Color | str = "#FACC15",
+                 leading: float = 1.5, hold: float = 0.12, alpha: float = 1.0) -> None:
+    """音楽のコードを (x, y) から描き、今鳴っている語を光らせる (Strudel の見せ方)。
+
+    played は Mix.pattern の返り値 (複数のパターンなら足し合わせる)。各パターンの文字列が code の中にあれば
+    その場所の語を光らせるので、`s("808bd*4")` のように飾りの書き方で包んでよい。語は鳴った瞬間に最も明るく、
+    音の長さ (短い音は hold 秒) をかけて元の色に戻る。改行で複数行にできる。
+    """
+    lines = code.split("\n")
+    starts = [0]
+    for ln in lines[:-1]:
+        starts.append(starts[-1] + len(ln) + 1)
+    widths: dict[tuple[int, int], float] = {}
+
+    def at(i: int) -> tuple[float, float]:
+        li = max(k for k, s0 in enumerate(starts) if s0 <= i)
+        key = (li, i - starts[li])
+        if key not in widths:
+            widths[key] = shape(lines[li][:key[1]], font, size).width
+        return x + widths[key], y + li * size * leading
+
+    glow: dict[tuple[int, int], float] = {}
+    for e in played:
+        life = max(e["dur"], hold)
+        off = code.find(e.get("pattern", code))
+        if off < 0 or not (e["t"] <= ctx.t < e["t"] + life):
+            continue
+        span = (e["span"][0] + off, e["span"][1] + off)
+        glow[span] = max(glow.get(span, 0.0), 1.0 - (ctx.t - e["t"]) / life)
+    for i, ln in enumerate(lines):
+        text(c, ln, x, y + i * size * leading, font=font, size=size, color=color, valign="cap", alpha=alpha)
+    hc = to_color(hi)
+    for (a, b), k in sorted(glow.items()):
+        (x0, ly), (x1, _) = at(a), at(b)
+        pad = size * 0.18
+        bg = skia.Paint(AntiAlias=True, Color=hc.alpha(0.22 * k * alpha).skia())
+        c.drawRoundRect(skia.Rect.MakeLTRB(x0 - pad, ly - size * 0.62, x1 + pad, ly + size * 0.62), pad, pad, bg)
+        text(c, code[a:b], x0, ly, font=font, size=size, color=hi, valign="cap", alpha=k * alpha)
 
 
 @dataclass

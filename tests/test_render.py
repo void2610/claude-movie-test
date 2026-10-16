@@ -62,3 +62,27 @@ def test_onion_stacks_the_moving_parts(tmp_path):
     out = onion(Path(__file__).parent / "fixtures" / "mini", 0.0, 1.0, n=5, scale=0.25, out=tmp_path / "o.png")
     img = cv2.imread(str(out))
     assert img is not None and img.shape[0] > 44
+
+
+def test_pattern_code_lights_the_word_that_is_sounding():
+    import skia
+
+    from motion import audio, overlay
+    from motion.scene import Composition, Ctx
+    comp = Composition(width=640, height=120, fps=60, duration=2, bpm=120)
+    code = 's("808bd ~ cp ~")'
+    played = audio.Mix(2.0).pattern("808bd ~ cp ~", comp.timeline)
+
+    def yellow(t):
+        s = skia.Surface(640, 120)
+        c = s.getCanvas()
+        c.clear(skia.Color(0, 0, 0))
+        overlay.pattern_code(c, Ctx(t, t * 60, comp, 0, 2), code, played, 20, 60, size=30, hi="#FFD000")
+        img = s.makeImageSnapshot().toarray(colorType=skia.kRGBA_8888_ColorType)
+        m = (img[..., 0] > 200) & (img[..., 1] > 150) & (img[..., 2] < 80)
+        xs = np.nonzero(m)[1]
+        return (xs.min(), xs.max()) if len(xs) else None
+
+    first, second = yellow(0.01), yellow(1.01)            # 808bd は 0 秒、cp は 1 秒 (1 小節 2 秒の半分)
+    assert first and second and second[0] > first[1]     # 光る語が右へ移る
+    assert yellow(0.7) is None                            # 休符の間は何も光らない

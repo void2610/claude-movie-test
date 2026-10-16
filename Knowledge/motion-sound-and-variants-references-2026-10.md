@@ -67,3 +67,5 @@
 - TidalCycles の短い記法 (mini-notation): `"bd*4, ~ cp, hh*8"` のように、空白で 1 周期 (1 小節) を等分し、`~` 休符、`[ ]` 細分、`< >` 周期ごとに交互、`*` `/` 速さ、`,` 重ね、`(3,8)` ユークリッドリズム、`:n` サンプルの番号、`!` `@` 繰り返し・伸ばし、`?` 間引き。既定のサンプル名 (bd・sd・hh・cp…) は Dirt-Samples と同じで、このリポジトリにもある
 - このエンジンの音楽は Python のループで 1 音ずつ時刻を書いている (`mx.hit("808bd", tl.beat(i))` を for で回す)。キック・ハイハット・ベースだけで 10 行ほどになる
 - Python から Strudel や Tidal を使う道は無い: Strudel は WebAudio 前提でオフラインの決定的な書き出しが難しく、Surge XT・自動の音量決め・音の検査と組めない。Python 版の `tidalvortex` は 2022 年の 0.1.0a0 で Python 3.10 まで
+- 取り込み (2026-10-16): 記法は `motion/pattern.py` に自前で書いた (分数で時刻を持ち、`< >` の入れ子は Tidal と同じく選ばれたときだけ進む: `<a b <c d>>` → a b c a b d)。`Mix.pattern(pat, tl)` が 1 小節を 1 周期として、音名は Surge XT か内蔵シンセ、それ以外は Dirt-Samples で鳴らし、各音の元の文字の位置を返す。`overlay.pattern_code` がその位置で今鳴っている語を光らせる (Strudel の見せ方)。`?` の間引きはシードと音の位置で決めるので、何度書き出しても同じ
+

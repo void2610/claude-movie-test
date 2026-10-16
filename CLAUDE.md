@@ -19,6 +19,7 @@
    - 1 つのショットで迷ったら、案を `variants.json` に複数書いて (`tune` の値か `build()` の引数の違い) `motion variants` で書き出し、ユーザーにスタジオの「案」で選んでもらう。選ばれた案は `chosen` に入るので、その値を作品に取り込む
    - メモは作品の `notes.md` に「- [ ] 08.30s [要素名] 本文」で残る。作業前に読み、未完了の項目をその時刻・その要素だけ直して `[x]` にする
 7. ユーザーから見た目の指摘を受けたら、直す前にその症状を `comp.checks` に `Check` として書き、今の版で失敗することを確かめてから直す (同じミスを別の作品で繰り返さないため)。どの作品でも起こりうる症状 (文字の重なりなど) は、作品ではなく `review` の検査としてエンジンに足す。新しい検査をエラーにする前に、合意済みの全作品 (`projects/`) が通ることを確かめる。合意済みの作品で失敗するなら、間違っているのは検査の方なので、基準を直すか注意に留める (作品を例外で黙らせない)。意図した例外だけ理由つきの `Waiver` にする。文字の検査の例外は `Waiver(..., elements=(...))` で要素の名前・文字列・関数名の並び (`project.py:palette › draw_list`) を指す。行番号は使わない (1 行足すだけで外れる)
+8. 参考の投稿 (X のリンク等) を渡されたら、調べて取り込める点を提案で止めず、全部実装まで進める。見送るものは理由を知識ベースに書く
 5. 縦長・正方形は切り抜きではなく、同じ素材とショットで別の構成として組む (`--set aspect=...`)
 
 ```sh
@@ -63,7 +64,7 @@ uv run pytest                                           # テスト (描画を�
 | `noise` | `perlin3` `fbm3` `curl2` `noise1` `hash01` |
 | `post` | `bloom` `chroma` `grain` `vignette` `glitch` `scanlines` `flash` `grade`。引数に `lambda ctx: ...` を渡せる。光学系はリニア空間、演出系 (`fx.space = "display"`) は sRGB で処理される |
 | `media` | `Image` / `Video` (動画は `comp.prepare.append(clip.prepare)` で作品の fps にフレームを書き出す)、`fit="cover" / "contain"` |
-| `audio` | `Mix`: `hit` (サンプル)、`tone` (内蔵シンセ)、`instrument` (Surge XT 等の VST3。`patch="Pads/MKS-70 Warm Pad"` でパッチ指定)、`file` (音声・動画の音)、`clip` (Clip の音を速度変化に追従させる。フリーズ中は無音)、`sfx`、`fx` `duck`、`render` で LUFS を揃えて wav 出力 |
+| `audio` | `Mix`: `hit` (サンプル)、`tone` (内蔵シンセ)、`instrument` (Surge XT 等の VST3。`patch="Pads/MKS-70 Warm Pad"` でパッチ指定)、`file` (音声・動画の音)、`clip` (Clip の音を速度変化に追従させる。フリーズ中は無音)、`sfx`、`pattern` (TidalCycles / Strudel の記法で 1 小節を 1 周期として鳴らす。`mx.pattern("808bd*4, ~ cp, 808hc*8?", tl)`、音名は `patch=` で Surge XT)、`fx` `duck`、`render` で LUFS を揃えて wav 出力。音楽のリズムとフレーズは for 文より `pattern` で書く |
 | `sfxlib` | 録音の効果音 1,139 個 (CC0、19 種)。`sfxlib.sound("hit/<id>")` を `mx.sfx(sound, t)` で山を t に合わせて置く。打撃・クリック・風切りはここから選び、合成しない。`gain_db=None` で音楽に対して浮く音量を自動で決め、`mx.hero(t, hit, boom, riser)` で見せ場 (打撃・低音・ライザーを山で揃えて重ねる) を作る。BGM は見せ場の前でも止めたり細らせたりしない (`stop_before` / `build` は拍の無い作品だけ) |
 | `soundqa` | review の音の検査: Cue の kind と書き出した絵の動き、効果音の置き場所、自分の帯域で浮くか、見せ場、ラウドネス・真のピーク・無音。review.md に「耳で確かめる時刻」を出す |
 | `sfx` | 合成の効果音 (`whoosh` `riser` `impact` `click` `glitch` `reverse_swell`)。録音が無い音の試作用 |
@@ -71,7 +72,8 @@ uv run pytest                                           # テスト (描画を�
 | `cache` | `cached(comp, name, fn, *deps)` で重い前計算を build/<作品>/cache に保存し全ワーカーで共有 |
 | `footage` | ゲームのキャプチャ等。`Footage(path)` を `comp.prepare` に登録すると使う区間だけ書き出す。`Clip(footage, at, src_in, time=TimeMap().play().ramp().hold().rewind().seek())` で速度変化・フリーズ・逆再生・ジャンプカット。`interp="flow"` でスローを補間。`Grade` (露出・彩度・色温度・.cube LUT) |
 | `edit` | `cut_on_beats` + `Sequence` (拍でカット割り・パンチイン)、`compare` (改修前後の比較スライダー)、`blur_fill` (縦動画の背景)、`pip`、`ken_burns` |
-| `overlay` | `callout` (引き出し線つきラベル)、`highlight` (周りを暗くして囲む)、`lower_third`、`badge`、`Captions` (SRT または Cue のリスト) |
+| `overlay` | `callout` (引き出し線つきラベル)、`highlight` (周りを暗くして囲む)、`lower_third`、`badge`、`Captions` (SRT または Cue のリスト)、`pattern_code` (音楽のコードを描き、`mx.pattern` の返り値から今鳴っている語を光らせる) |
+| `pattern` | TidalCycles の記法を読む (`[ ]` 細分・`< >` 交互・`*` `/`・`,` 重ね・`(3,8)`・`!` `@`・`?` はシード固定・`bd:3`)。`events(s, cycles)` |
 | `scan` | キャプチャの動きの量・音の大きさ・シーンの切れ目を測り、`highlights(n)` で見せ場の候補を返す |
 | `blender` | `render_plate` で Blender をヘッドレス実行して連番 PNG を作る (入力が同じならキャッシュ)。`Plate` で時刻から引いて合成。初回だけ Metal カーネルのコンパイルに数分かかる |
 | `mgx` | `MgxPlate(file, "シーン名", start=, size=, params=)` で ManimGX (Manim CE 互換の API) のシーンを透明な背景の連番にし、`comp.prepare.append(plate.prepare)` で書き出しの前に作って `plate.draw(c, ctx, x, y)` で合成する。数式・グラフ・3D の曲面向け。1080²・60fps の 3 秒で約 3 秒。シーンでは `mgx.params()` で値を読む |

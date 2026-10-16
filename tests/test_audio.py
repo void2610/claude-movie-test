@@ -118,3 +118,17 @@ def test_hp_build_removes_low_end_toward_the_cue():
     out = audio._hp_build(y, 2.0, 2.0, 48000)
     early, late = np.abs(out[0, 4800:9600]).max(), np.abs(out[0, -4800:]).max()
     assert late < early * 0.3
+
+
+def test_pattern_plays_samples_and_notes_on_the_bar_grid():
+    from motion.timeline import Timeline
+    tl = Timeline(bpm=120)                      # 1 小節 = 2 秒
+    mx = audio.Mix(4.0, tail=0.5)
+    ev = mx.pattern("808bd*4, ~ cp", tl)
+    assert [round(e["t"], 3) for e in ev if e["value"] == "808bd"] == [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5]
+    assert [round(e["t"], 3) for e in ev if e["value"] == "cp"] == [1.0, 3.0]
+    y = mx.buses["drums"][0]
+    on = lambda t: np.abs(y[int(t * 48000):int((t + 0.03) * 48000)]).max()  # noqa: E731
+    assert on(0.5) > 0.05 and on(0.25) < on(0.5) * 0.3
+    ev = mx.pattern("<a3 c4>", tl, wave="sine", bus="lead", gain_db=-6)
+    assert [e["value"] for e in ev] == ["a3", "c4"] and np.abs(mx.buses["lead"]).max() > 0.01
