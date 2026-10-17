@@ -12,7 +12,7 @@
 1. `uv run python -m motion new <名前>` でひな形を作り、`brief.md` → `style.md` → `shotlist.md` を埋める。空欄のままレンダリングしない (モデルが無難な既定値で埋め、凡庸な定番になる)
 2. 素材 (ロゴ・画面・キャプチャ・音) は実物だけを使う。足りなければ止めてユーザーに確認し、それらしいものを捏造しない
 3. 最も大事な 1 ショットを先に作り、`still` で見せて方向性の合意を取ってから他を作る
-4. `review` のシートと review.md で最も大きな欠点を 3 つ、時刻・根拠・局所的な修正つきで書き、その区間だけ直して `review` し直す。`review` は等倍の画素で検査し (1 フレームの閃き・ループ・作品ごとの `comp.checks`)、全コマの文字を検査する (別々の要素の文字の重なり・画面の縁で切れたまま止まった文字。指摘には要素を描いたコードの行が付く)。縦に持ったスマホで小さすぎる文字と、画素で見た縁の見切れ (画面いっぱいの背景や素材と区別できない) は「注意」として出し、合否には数えない。エラーが 1 件でも残ると失敗で終わる。エラーが 0 件になるまで完了と報告しない
+4. `review` のシートと review.md で最も大きな欠点を 3 つ、時刻・根拠・局所的な修正つきで書き、その区間だけ直して `review` し直す。`review` は等倍の画素で検査し (1 フレームの閃き・ループ・作品ごとの `comp.checks`)、全コマの文字を検査する (別々の要素の文字の重なり・画面の縁で切れたまま止まった文字。指摘には要素を描いたコードの行が付く)。縦に持ったスマホで小さすぎる文字と、画素で見た縁の見切れ (画面いっぱいの背景や素材と区別できない) は「注意」として出し、合否には数えない。エラーが 1 件でも残ると失敗で終わる。エラーが 0 件になるまで完了と報告しない。`render` / `review` には `--note` で何を試した版かを書く (`motion trail` の版の名前になり、行き止まりも残る)
 6. 調整はスタジオ (`motion studio`) で行う。人間は映像の要素を直接つかんで動かす・拡大縮小・回転し、文言・色・出のタイミングを変える。そのため作品のコードでは、画面に描く要素を必ず `node(c, ctx, "名前", origin=..., span=...)` (2.5D のカードは `Card(id=...)`) で名前を付けて囲み、文言・色など人間が変えそうな値は `n.prop("text", 既定値)` で読み、アニメーションの時刻は `ctx.t` ではなく `n.t` を使う。作品全体に効く値 (BPM 由来の時刻など) だけ `tune()` にする
    - 人間の変更は作品の `edits.json` に要素の名前ごとの差分 (dx, dy, dz, scale, rot, opacity, dt, hidden, props) で残り、書き出しにもそのまま反映される。作業の前に読み、人間が何をどう変えたかを把握する。要素の名前は変えない (変えると差分が外れる)。コードを大きく作り直すときは、差分をコードの既定値に取り込んでから edits.json の該当項目を消す
    - `dt` は要素の入りと抜けを同じだけずらす (スタジオの操作が「全体をずらす」しか無いため)。コードに取り込むときは、人間が動かしたかったのが入りか抜けかを決め、もう片方は前後の要素との受け渡し (前の要素が抜けきる・次の要素が入る時刻) に合わせて置き直す
@@ -23,13 +23,14 @@
 5. 縦長・正方形は切り抜きではなく、同じ素材とショットで別の構成として組む (`--set aspect=...`)
 
 ```sh
-uv run python -m motion render projects/demo            # 1080p・音付きで build/demo/demo.mp4
+uv run python -m motion render projects/demo            # 1080p・音付きで build/demo/demo.mp4 (--note "何を試したか" で版の名前)
 uv run python -m motion studio projects/liminal_poster  # スタジオ: タイムライン・パラメータ・メモ・レビュー・書き出し
 uv run python -m motion preview projects/demo           # 軽量なプレビュー (シーク・再生のみ)
 uv run python -m motion render projects/demo --draft    # 半解像度・ブラーなし・HW エンコード
 uv run python -m motion render projects/demo --start 2 --end 4
 uv run python -m motion new myfilm --aspect 1:1         # 制作文書つきのひな形 (projects/myfilm)
-uv run python -m motion review projects/demo            # 批評用シート + review.md (projects/demo/reviews/)
+uv run python -m motion review projects/demo            # 批評用シート + review.md (projects/demo/reviews/)。--note で版の名前
+uv run python -m motion trail projects/demo             # 書き出し・レビューの版の並び (コマ・系譜・変わった層・段) を動画と画像に。--git で記録前の版も
 uv run python -m motion variants projects/demo          # variants.json の全案の下書き → スタジオの「案」で並べて同時に再生して選ぶ
 uv run python -m motion sheet projects/demo             # コンタクトシート (build/demo/sheet.png)
 uv run python -m motion still projects/demo 3.5         # 1 フレームの PNG
@@ -76,6 +77,7 @@ uv run pytest                                           # テスト (描画を�
 | `footage` | ゲームのキャプチャ等。`Footage(path)` を `comp.prepare` に登録すると使う区間だけ書き出す。`Clip(footage, at, src_in, time=TimeMap().play().ramp().hold().rewind().seek())` で速度変化・フリーズ・逆再生・ジャンプカット。`interp="flow"` でスローを補間。`Grade` (露出・彩度・色温度・.cube LUT) |
 | `edit` | `cut_on_beats` + `Sequence` (拍でカット割り・パンチイン)、`compare` (改修前後の比較スライダー)、`blur_fill` (縦動画の背景)、`pip`、`ken_burns` |
 | `overlay` | `callout` (引き出し線つきラベル)、`highlight` (周りを暗くして囲む)、`lower_third`、`badge`、`Captions` (SRT または Cue のリスト)、`pattern_code` (音楽のコードを描き、`mx.pattern` の返り値から今鳴っている語を光らせる) |
+| `trail` | 反復の軌跡。作品全体の render / review のたびに版を `projects/<名前>/trail/` に記録し (12 コマ・変わった層・タイムラインの段)、古い中身に戻った版の間を行き止まりとして描く。`draw_lanes` は review のシートの段にも使う |
 | `pattern` | TidalCycles の記法を読む (`[ ]` 細分・`< >` 交互・`*` `/`・`,` 重ね・`(3,8)`・`!` `@`・`?` はシード固定・`bd:3`)。`events(s, cycles)` |
 | `scan` | キャプチャの動きの量・音の大きさ・シーンの切れ目を測り、`highlights(n)` で見せ場の候補を返す |
 | `blender` | `render_plate` で Blender をヘッドレス実行して連番 PNG を作る (入力が同じならキャッシュ)。`Plate` で時刻から引いて合成。初回だけ Metal カーネルのコンパイルに数分かかる |
@@ -94,6 +96,7 @@ uv run pytest                                           # テスト (描画を�
 - `Knowledge/motion-skill-rules.md`: 動き・構図・文字・色・音の具体的な数値ルールと避ける定番 (作り込む前に読む)
 - `Knowledge/motion-studio-references-2026-10.md`: 参考事例の調査 (rari の記事・motionpromptgallery など)
 - `Knowledge/motion-sound-and-variants-references-2026-10.md`: 実録音の効果音と音の QA (opus-sound-layer)、案を並べて選ぶ反復 (fframes)
+- `Knowledge/iteration-trail-references-2026-10.md`: 反復の軌跡を見せる動画 (版ごとのコマ・系譜・タイムラインの段) の調査と `motion trail`
 - `Knowledge/earshot-ears-for-agents-2026-10.md`: earshot (エージェントの耳) の CLAP の較正・プロの 7 本の音の実測・取り込んだものと見送ったもの
 - `Knowledge/manimgx-agent-animation-engine-2026-10.md`: ManimGX (Rust + wgpu、Manim 互換) の速さの工夫と、エージェント向けの確認手段 (`inspect` のストーリーボードとレイアウト検査)
 - `Knowledge/shneural-engine-anatomy.md`: 自作 Python エンジンの構成例 (BPM 基準の core、シーンごとのファイル、`f(t)` 型のレンダラ、コンタクトシートでの自己レビュー)
