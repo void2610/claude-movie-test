@@ -37,9 +37,10 @@ uv run python -m motion onion projects/demo 2.0 2.8     # 区間のコマを重�
 uv run python -m motion audio projects/demo             # 音だけ
 uv run python -m motion patches pads/                   # Surge XT のパッチ検索
 uv run python -m motion audition pads/ -n 8             # 候補を同じ和音で順に鳴らした build/audition.wav
-uv run python -m motion sfx browse hit --like "metal heavy"  # 効果音の候補と波形・スペクトログラムの画像 (build/sfx.png)
+uv run python -m motion sfx browse hit --like "a heavy metal impact"  # 説明に音そのものが合う順 (CLAP) の候補と画像 (build/sfx.png)
 uv run python -m motion sfx search "page turn" --type paper  # ライブラリに無い音を CC0 から探す → sfx add で足す
-uv run python -m motion sfx ambience                     # 環境音のひと揃えを Openverse の CC0 から取り込む
+uv run python -m motion sfx ambience                     # 環境音のひと揃えを Openverse の CC0 から取り込む (CLAP で中身を確かめる)
+uv run python -m motion sfx hear a.wav hit/fs-... --like "a heavy metal impact"  # その音が何に聞こえるか・説明に合うか (CLAP の z)
 uv run python -m motion analyze song.mp3                # 既存の曲の BPM・小節頭・強いオンセット
 uv run python -m motion scan capture.mp4 --top 6        # キャプチャの見せ場の候補とシーンの切れ目 (グラフ画像つき)
 uv run python -m motion render projects/devlog --set aspect=9:16          # build(aspect="9:16") で書き出す
@@ -67,7 +68,8 @@ uv run pytest                                           # テスト (描画を�
 | `media` | `Image` / `Video` (動画は `comp.prepare.append(clip.prepare)` で作品の fps にフレームを書き出す)、`fit="cover" / "contain"` |
 | `audio` | `Mix`: `hit` (サンプル)、`tone` (内蔵シンセ)、`instrument` (Surge XT 等の VST3。`patch="Pads/MKS-70 Warm Pad"` でパッチ指定)、`file` (音声・動画の音)、`clip` (Clip の音を速度変化に追従させる。フリーズ中は無音)、`sfx`、`pattern` (TidalCycles / Strudel の記法で 1 小節を 1 周期として鳴らす。`mx.pattern("808bd*4, ~ cp, 808hc*8?", tl)`、音名は `patch=` で Surge XT)、`fx` `duck`、`render` で LUFS を揃えて wav 出力。音楽のリズムとフレーズは for 文より `pattern` で書く |
 | `sfxlib` | 録音の効果音 1,139 個 (CC0、19 種)。`sfxlib.sound("hit/<id>")` を `mx.sfx(sound, t)` で山を t に合わせて置く。打撃・クリック・風切りはここから選び、合成しない。`gain_db=None` で音楽に対して浮く音量を自動で決め、`mx.hero(t, hit, boom, riser)` で見せ場 (打撃・低音・ライザーを山で揃えて重ねる) を作る。環境音 (種類 `ambience`、`motion sfx ambience` で部屋の空気・雨・街・カフェ・オフィス・森・風・夜の虫) は `mx.ambience("rain", level_db=-34)` で音楽の下に輪にして敷く。CC BY の音 (`sfx search --by`) を使うと書き出しの横に `credits.txt` ができ、投稿に出典を書く。BGM は見せ場の前でも止めたり細らせたりしない (`stop_before` / `build` は拍の無い作品だけ) |
-| `soundqa` | review の音の検査: Cue の kind と書き出した絵の動き、効果音の置き場所、自分の帯域で浮くか、見せ場、ラウドネス・真のピーク・無音。review.md に「耳で確かめる時刻」を出す |
+| `soundqa` | review の音の検査: Cue の kind と書き出した絵の動き、効果音の置き場所、自分の帯域で浮くか、見せ場、ラウドネス・真のピーク・無音。音の形 (最初の音・終わりの無音・穴・LRA。プロの 7 本と並べる情報)、書き出しの傷 (直流・端のクリック・クリップ・途中の 0)、同じ音の連打は警告。review.md に「耳で確かめる時刻」と、カットに音がある割合を時刻をずらした偶然の水準と並べて出す |
+| `ears` | 音を言葉で聞く (CLAP)。`ears.match(files, "wind blowing")` で z (3 以上で強い一致)、`ears.describe(file)` で何に聞こえるか。効果音・環境音を選ぶときに使い、書き出しの中では使わない (読み込みに 20 秒) |
 | `sfx` | 合成の効果音 (`whoosh` `riser` `impact` `click` `glitch` `reverse_swell`)。録音が無い音の試作用 |
 | `analysis` | `analyze(path)` で BPM・拍・小節頭・オンセット。`info.timeline()` で Timeline にできる。小節頭がずれたら `shift_downbeats(n)` |
 | `cache` | `cached(comp, name, fn, *deps)` で重い前計算を build/<作品>/cache に保存し全ワーカーで共有 |
@@ -92,6 +94,7 @@ uv run pytest                                           # テスト (描画を�
 - `Knowledge/motion-skill-rules.md`: 動き・構図・文字・色・音の具体的な数値ルールと避ける定番 (作り込む前に読む)
 - `Knowledge/motion-studio-references-2026-10.md`: 参考事例の調査 (rari の記事・motionpromptgallery など)
 - `Knowledge/motion-sound-and-variants-references-2026-10.md`: 実録音の効果音と音の QA (opus-sound-layer)、案を並べて選ぶ反復 (fframes)
+- `Knowledge/earshot-ears-for-agents-2026-10.md`: earshot (エージェントの耳) の CLAP の較正・プロの 7 本の音の実測・取り込んだものと見送ったもの
 - `Knowledge/manimgx-agent-animation-engine-2026-10.md`: ManimGX (Rust + wgpu、Manim 互換) の速さの工夫と、エージェント向けの確認手段 (`inspect` のストーリーボードとレイアウト検査)
 - `Knowledge/shneural-engine-anatomy.md`: 自作 Python エンジンの構成例 (BPM 基準の core、シーンごとのファイル、`f(t)` 型のレンダラ、コンタクトシートでの自己レビュー)
 - `Knowledge/opus55-video-stack-survey.md`: 他の事例の技術スタックと品質を上げる工夫
@@ -108,6 +111,7 @@ uv run pytest                                           # テスト (描画を�
 | 3D | Blender 5.2 | CLI: `blender --background --python <script>`。GUI 操作は Blender MCP (`.mcp.json` の `blender`、Blender 起動中のみ有効) |
 | シンセ | Surge XT | VST3: `/Library/Audio/Plug-Ins/VST3/Surge XT.vst3`。プリセットは `/Library/Application Support/Surge XT/` |
 | エフェクト | Surge XT Effects | VST3: `/Library/Audio/Plug-Ins/VST3/Surge XT Effects.vst3` |
+| 音の言語モデル | CLAP (laion/larger_clap_general) | uv 環境 (torch・transformers)。初回に Hugging Face から約 800MB を取得し、以降はオフライン。`motion.ears` から使う |
 | VST ホスト | pedalboard | uv 環境。`pedalboard.load_plugin(<vst3 パス>)` で上記 VST3 を Python から鳴らす・かける |
 | ドラムサンプル | Dirt-Samples | `~/Music/Samples/Dirt-Samples/` (808bd, 808sd, 808hc, 808oh, 909, bd, sn, hh, cp など) |
 | 効果音 | motion-sfx | `~/Music/Samples/motion-sfx/` (`motion sfx kit` で Kenney・Freesound の CC0 から作る。出典は CREDITS.md) |
