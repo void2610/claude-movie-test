@@ -22,6 +22,7 @@ def main() -> None:
     r.add_argument("--draft", action="store_true", help="半分の解像度・ブラーなし・高速エンコード")
     r.add_argument("--no-audio", action="store_true")
     r.add_argument("--codec", choices=["x264", "hw"], help="既定は本番 x264、--draft 時は hw")
+    r.add_argument("--note", default="", help="この版で何を試したか (motion trail の版の名前になる)")
 
     s = sub.add_parser("sheet", help="等間隔フレームのコンタクトシート")
     s.add_argument("project")
@@ -55,6 +56,13 @@ def main() -> None:
     rv.add_argument("project")
     rv.add_argument("-o", "--out")
     rv.add_argument("--scale", type=float, default=0.22)
+    rv.add_argument("--note", default="", help="この版で何を試したか (motion trail の版の名前になる)")
+
+    tr = sub.add_parser("trail", help="書き出し・レビューの版の並び (反復の軌跡) を動画と画像にする")
+    tr.add_argument("project")
+    tr.add_argument("-o", "--out", help="既定は build/<名前>/trail.mp4 (横に trail.png)")
+    tr.add_argument("--git", action="store_true", help="記録を始める前の版を git の履歴から描いて足す")
+    tr.add_argument("--page", type=float, default=1.2, help="1 版あたりの秒数")
 
     a = sub.add_parser("audio", help="音声だけを書き出す")
     a.add_argument("project")
@@ -128,6 +136,12 @@ def main() -> None:
             except json.JSONDecodeError:
                 params[k] = v
         os.environ["MOTION_PARAMS"] = json.dumps(params)
+    if args.cmd == "trail":
+        from . import trail
+        if args.git:
+            trail.from_git(args.project)
+        trail.build(args.project, args.out, args.page)
+        return
     if args.cmd == "onion":
         from .onion import onion
         print(f"-> {onion(args.project, args.t0, args.t1, args.n, args.scale, args.out)}")
@@ -236,11 +250,11 @@ def main() -> None:
         if args.draft:
             render_video(args.project, args.out, scale=min(args.scale, 0.5), start=args.start, end=args.end,
                          workers=args.workers, crf=23, preset="veryfast", motion_blur=False,
-                         audio=not args.no_audio, codec=args.codec or "hw")
+                         audio=not args.no_audio, codec=args.codec or "hw", note=args.note)
         else:
             render_video(args.project, args.out, scale=args.scale, start=args.start, end=args.end,
                          workers=args.workers, crf=args.crf, audio=not args.no_audio, codec=args.codec or "x264",
-                         bitrate=args.bitrate)
+                         bitrate=args.bitrate, note=args.note)
     elif args.cmd == "sheet":
         contact_sheet(args.project, args.out, count=args.count, cols=args.cols, scale=args.scale,
                       start=args.start, end=args.end, workers=args.workers)
@@ -248,7 +262,7 @@ def main() -> None:
         still(args.project, args.t, args.out, scale=args.scale)
     elif args.cmd == "review":
         from .review import review
-        res = review(args.project, args.out, args.scale)
+        res = review(args.project, args.out, args.scale, note=args.note)
         if res.errors:
             raise SystemExit(f"レビューのエラー {len(res.errors)} 件。直すか、理由つきの Waiver を作品に書く")
     elif args.cmd == "audio":

@@ -192,7 +192,8 @@ def _text_facts_one(f: int) -> dict:
                      for a, b, share in text_overlaps(e.seen)],
             "size": [(i, cap * k, full(r)) for i, cap, r in text_sizes(e.seen)],
             "cut": [(i, full(v), full(r)) for i, v, r in text_edge_cuts(e.seen, _R.w, _R.h)],
-            "names": {i: (e.labels.get(i, i), e.where.get(i, ""), e.funcs.get(i, "")) for i in e.seen if e.seen[i].texts}}
+            "names": {i: (e.labels.get(i, i), e.where.get(i, ""), e.funcs.get(i, "")) for i in e.seen if e.seen[i].texts},
+            "vis": {i: e.labels.get(i, i) for i in e.seen if e.seen[i].text > 0.05}}
 
 
 def _pool(project, scale, mb, post, workers):
@@ -210,7 +211,7 @@ def _frames(comp: Composition, start: float | None, end: float | None, step: int
 def render_video(project: str | Path, out: str | Path | None = None, *, scale: float = 1.0,
                  start: float | None = None, end: float | None = None, workers: int | None = None,
                  crf: int = 20, preset: str = "medium", motion_blur: bool = True, post: bool = True,
-                 audio: bool = True, codec: str = "x264", bitrate: float | None = None) -> Path:
+                 audio: bool = True, codec: str = "x264", bitrate: float | None = None, note: str = "") -> Path:
     """codec は "x264" (高画質・CPU) か "hw" (VideoToolbox・高速。下書き向け)。
 
     out の拡張子が .webm なら VP9 + Opus、.gif ならいったん mp4 に書いてからパレットを作って変換する。
@@ -262,9 +263,16 @@ def render_video(project: str | Path, out: str | Path | None = None, *, scale: f
 
     ff = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     t0 = time.time()
+    from . import trail
+    # 作品全体の書き出しだけを版として記録する (区間の書き出しや GIF の途中の mp4 は試し)
+    whole = start is None and end is None and not out.name.endswith(".gif.mp4") and trail.enabled()
+    pick = set(np.linspace(0, len(frames) - 1, min(trail.THUMBS, len(frames))).round().astype(int).tolist())
+    thumbs = []
     with _pool(project, scale, motion_blur, post, workers) as pool:
         for i, buf in enumerate(pool.imap(_render_one, frames, chunksize=2)):
             ff.stdin.write(buf)
+            if whole and i in pick:
+                thumbs.append(np.frombuffer(buf, np.uint8).reshape(h, w, 3).copy())
             if i % max(len(frames) // 20, 1) == 0 or i == len(frames) - 1:
                 el = time.time() - t0
                 print(f"\rrender: {i + 1}/{len(frames)}  {el:.1f}s  ({(i + 1) / max(el, 1e-6):.1f} fps)",
@@ -273,6 +281,9 @@ def render_video(project: str | Path, out: str | Path | None = None, *, scale: f
     if ff.wait() != 0:
         raise RuntimeError("ffmpeg failed")
     print(f"\n-> {out}")
+    if whole:
+        trail.record(project, comp, "render", note, thumbs, wav=wav, shots=comp.shots, elapsed_s=round(time.time() - t0, 1),
+                     size_mb=round(out.stat().st_size / 1e6, 2), frames=len(frames), scale=scale)
     return out
 
 

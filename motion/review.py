@@ -59,7 +59,7 @@ def _render(project, frames: list[int], scale: float, workers=None) -> dict[int,
                 for f, b in zip(frames, pool.imap(_render_one, frames, chunksize=2))}
 
 
-def text_findings(project, comp, workers=None) -> list:
+def text_findings(project, comp, workers=None, spans: dict | None = None) -> list:
     """全コマの文字の検査: 別々の要素の文字の重なり、スマホ幅で読めない大きさ、画面の縁での見切れ。
 
     重なりと見切れは続いた区間ごとに 1 件、大きさは要素ごとに一番大きく見えるコマで 1 件にする。
@@ -69,6 +69,9 @@ def text_findings(project, comp, workers=None) -> list:
     print(f"review: checking text in {comp.nframes} frames...", flush=True)
     with _pool(project, 0.25, False, False, workers) as pool:
         per = list(pool.imap(_text_facts_one, range(comp.nframes), chunksize=8))
+    if spans is not None:
+        from .trail import text_spans
+        spans.update(text_spans([p.get("vis", {}) for p in per], fps))
     names: dict[str, tuple[str, str, str]] = {}
     for facts in per:
         names.update(facts["names"])
@@ -389,7 +392,8 @@ class _Sheet:
         cv2.imwrite(str(path), cv2.cvtColor(img, cv2.COLOR_RGBA2BGR))
 
 
-def review(project: str | Path, out_dir: str | Path | None = None, scale: float = 0.22, workers=None) -> Path:
+def review(project: str | Path, out_dir: str | Path | None = None, scale: float = 0.22, workers=None,
+           note: str = "") -> Path:
     comp = load_project(project)
     prepare(comp)
     shots = comp.shots or _default_shots(comp)
@@ -403,7 +407,8 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     shot_frames = {s.name: [f_of(s.start + min(0.15, s.dur * 0.1)), f_of(s.at(0.5)),
                             f_of(s.end - min(0.15, s.dur * 0.1))] for s in shots}
 
-    texts = text_findings(project, comp, workers)
+    spans: dict = {}
+    texts = text_findings(project, comp, workers, spans)
     # 縮小画像では細い線の色や文字の欠けが見えないので、検査は等倍で行う
     check_frames = {f_of(t): t for chk in comp.checks for t in chk.times}
     scan_frames = sorted(set([f for v in shot_frames.values() for f in v] + list(range(0, comp.nframes, int(fps / 4)))
@@ -434,7 +439,7 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     err_h = sum(h for _, _, h in views) + 60 + (50 if notes else 0)
     detail_h = len(shots) * 360 + 60
     H = (120 + err_h + len(shots) * row_h + len(cut_frames) * cut_h + 260 + max(i.shape[0] for i in phone.values())
-         + 120 + detail_h + 520)
+         + 120 + detail_h + 520 + 260)
     sh = _Sheet(W, H)
     y = 40
     sh.text(f"{comp.name}  レビュー  {datetime.datetime.now():%Y-%m-%d %H:%M}", 24, y, 26)
@@ -518,6 +523,10 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     sh.text("音の検査 (効果音・見せ場と、絵の動き)", 24, y + 10, 18)
     sh.image(sound_strip(sq, wav, comp, gw), gx, y + 30)
     y += 520
+    from . import trail
+    ln = trail.lanes(comp, shots, wav, spans)
+    sh.text("タイムラインの段 (文字が見えている区間・効果音・環境音・音楽)", 24, y + 10, 18)
+    y += 30 + trail.draw_lanes(sh.c, ln, gx, y + 30, gw) + 30
 
     sh.text("スマホ (縦 360×780) での見え方", 24, y + 10, 18)
     x = 24
@@ -597,6 +606,11 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     md = out / f"{stamp}.md"
     md.write_text("\n".join(lines), encoding="utf-8")
     print(f"-> {png}\n-> {md}")
+    if trail.enabled():
+        tf = [int(round(i)) for i in np.linspace(0, comp.nframes - 1, min(trail.THUMBS, comp.nframes))]
+        small = _render(project, tf, min(0.25, 480 / comp.width), workers)
+        trail.record(project, comp, "review", note, [small[f] for f in tf], wav=wav, shots=shots, text=spans,
+                     errors=len(errors), notes=len(notes), review=md.name)
     for fd in errors:
         print(f"ERROR {fd.t:.2f}s {fd.rule}: {fd.detail}" + (f"  ({fd.where})" if fd.where else ""))
     if notes:
