@@ -21,6 +21,7 @@
 7. ユーザーから見た目の指摘を受けたら、直す前にその症状を `comp.checks` に `Check` として書き、今の版で失敗することを確かめてから直す (同じミスを別の作品で繰り返さないため)。どの作品でも起こりうる症状 (文字の重なりなど) は、作品ではなく `review` の検査としてエンジンに足す。新しい検査をエラーにする前に、合意済みの全作品 (`projects/`) が通ることを確かめる。合意済みの作品で失敗するなら、間違っているのは検査の方なので、基準を直すか注意に留める (作品を例外で黙らせない)。意図した例外だけ理由つきの `Waiver` にする。文字の検査の例外は `Waiver(..., elements=(...))` で要素の名前・文字列・関数名の並び (`project.py:palette › draw_list`) を指す。行番号は使わない (1 行足すだけで外れる)
 8. 参考の投稿 (X のリンク等) を渡されたら、調べて取り込める点を提案で止めず、全部実装まで進める。見送るものは理由を知識ベースに書く
 5. 縦長・正方形は切り抜きではなく、同じ素材とショットで別の構成として組む (`--set aspect=...`)
+9. チル (作業用 BGM) の曲には盛り上がりを作らない。冒頭の雰囲気を最後まで保ち、区間の変化は引く方向 (キックを休むなど) だけにする。途中で歌い出すリード (サビに聞こえる)、V へ進む進行、ライザー・逆再生のシンバル、閉じてから開くフィルタ、後から足す楽器は使わない。区間ごとの LUFS を並べ、山が無いことを確かめる (bluehour で指摘された)
 
 ```sh
 uv run python -m motion render projects/demo            # 1080p・音付きで build/demo/demo.mp4 (--note "何を試したか" で版の名前)
@@ -97,7 +98,7 @@ uv run pytest                                           # テスト (描画を�
 - `Knowledge/motion-studio-references-2026-10.md`: 参考事例の調査 (rari の記事・motionpromptgallery など)
 - `Knowledge/motion-sound-and-variants-references-2026-10.md`: 実録音の効果音と音の QA (opus-sound-layer)、案を並べて選ぶ反復 (fframes)
 - `Knowledge/iteration-trail-references-2026-10.md`: 反復の軌跡を見せる動画 (版ごとのコマ・系譜・タイムラインの段) の調査と `motion trail`
-- `Knowledge/music-production-bluehour-2026-10.md`: 電子音のチル (projects/bluehour) で分かった、ジャズから離れる要素・曲の中で音色を選ぶと「企業の BGM」の原因が分かること・CLAP の語彙に無いジャンルの測り方・TR-808 のサンプルの名前
+- `Knowledge/music-production-bluehour-2026-10.md`: 電子音のチル (projects/bluehour) で分かった、チルに盛り上がり (リードが歌い出す・進行・ライザー) は要らないこと・ジャズから離れる要素・曲の中で音色を選ぶと「企業の BGM」の原因が分かること・CLAP の語彙に無いジャンルの測り方・TR-808 のサンプルの名前
 - `Knowledge/music-production-afterglow-2026-10.md`: 今ある機能で作った曲 (projects/afterglow) で分かった、音楽を作れる範囲・音色を曲の中で選び直す理由・楽器の音量の揃え方・サックスの実音の使い方
 - `Knowledge/earshot-ears-for-agents-2026-10.md`: earshot (エージェントの耳) の CLAP の較正・プロの 7 本の音の実測・取り込んだものと見送ったもの
 - `Knowledge/manimgx-agent-animation-engine-2026-10.md`: ManimGX (Rust + wgpu、Manim 互換) の速さの工夫と、エージェント向けの確認手段 (`inspect` のストーリーボードとレイアウト検査)

@@ -1,12 +1,12 @@
 """bluehour。夜明け前の青い時間の、電子音のチル (90 BPM・F リディアン・117 秒)。制作の判断は brief.md / style.md / shotlist.md にある。"""
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import pedalboard as pb
 import skia
 
-from motion import Composition, Palette, audio, draw, overlay, post, scene, sfxlib, text
+from motion import Composition, Palette, audio, draw, overlay, post, scene, text
 from motion.color import to_color
 from motion.noise import hash01
 from motion.nodes import node
@@ -22,27 +22,21 @@ BARS = 44
 DUR = BARS * tl.bar_len
 # 16 分の裏だけ少し後ろへ (ハットとシェイカーが揺れる程度。強く跳ねるとジャズやヒップホップに寄る)
 SWING = 0.55
-SECTIONS = [("intro", 0), ("a", 8), ("b", 16), ("brk", 24), ("c", 32), ("outro", 40)]
-# 区間ごとの和音。リディアンの浮いた 2 和音 (F△9 と G/F) と、vi–IV–I/3–Vsus2 の進行
-HARMONY = {"intro": ["Fmaj9", "G/F"], "a": ["Fmaj9", "G/F"], "b": ["Dm9", "Bbmaj9", "F/A", "Csus2"],
-           "brk": ["Dm9", "Bbmaj9", "F/A", "Csus2"], "c": ["Dm9", "Bbmaj9", "F/A", "Csus2"],
+# 盛り上がりを作らない: 冒頭の a の雰囲気を最後まで保ち、途中の b だけキックを抜いて和音の色を少し変える
+SECTIONS = [("intro", 0), ("a", 8), ("b", 24), ("a2", 32), ("outro", 40)]
+HARMONY = {"intro": ["Fmaj9", "G/F"], "a": ["Fmaj9", "G/F"], "b": ["Dm9", "Bbmaj9"], "a2": ["Fmaj9", "G/F"],
            "outro": ["Fmaj9", "G/F", "Fmaj9"]}
 
 PAD = "Pads/Verb Pad"
 ARP = "Plucks/Sinus Verby Pops"
 BASS = "Basses/Smoothie"
-LEAD = "Leads/Butter"
-# 重なった音どうしだけ音程が滑る (つながった旋律だけがシンセらしくしなる)
-GLIDE = {"a_play_mode": "Mono (Single Trigger & Fingered Portamento)", "a_portamento": "70.8 ms"}
 CRICKETS = "ambience/own-ov-3f1df54f"
 BIRDS = "ambience/own-ov-9c53f3f3"
-RISER = "riser/fs-268559-uplifter-01-wav-1"
-REVERSE = "reverse/fs-244862-rev-cymb-15-reverb-wav-1"
 
+KICK = "808bd:3 ~ ~ 808bd:3 ~ ~ <~ ~ ~ 808bd:3> ~"
 VAMP_PAD = "<[a3,c4,e4,g4] [g3,b3,d4,a4]>/2"
-PROG_PAD = "<[f3,a3,c4,e4] [f3,a3,c4,d4] [g3,a3,c4,f4] [g3,c4,d4,g4]>"
 VAMP_ARP = "<[a4 c5 e5 g5]*2!2 [b4 d5 g5 a5]*2!2>"
-PROG_ARP = "<[a4 c5 e5 f5]*2 [a4 c5 d5 f5]*2 [a4 c5 f5 g5]*2 [g4 c5 d5 g5]*2>"
+VAMP_BASS = "f1@3 f1@3 f1@2"
 
 
 @dataclass
@@ -58,52 +52,35 @@ class Part:
     legato: float = 1.0
     velocity: int = 100
     octave: int = 3
-    params: dict = field(default_factory=dict)
 
 
-ROWS = ["kick", "rim", "hat", "shaker", "bass", "pad", "arp", "lead", "answer"]
+ROWS = ["kick", "rim", "hat", "shaker", "bass", "pad", "arp"]
 PARTS = [
-    # ドラム: キックは 1 拍目と 2 拍目の裏、4 小節に 1 度だけ 4 拍目の裏にも
-    Part("kick", "808bd:3 ~ ~ 808bd:3 ~ ~ <~ ~ ~ 808bd:3> ~", (8, 24), -0.5, bus="kick"),
-    Part("kick", "808bd:3 ~ ~ 808bd:3 ~ ~ <~ ~ ~ 808bd:3> ~", (32, 40), -0.5, bus="kick"),
-    Part("rim", "~ 808:5 ~ 808:5", (8, 16), -6, pan=0.1),
-    Part("rim", "~ 808:5 ~ 808:5", (16, 24), -6, bus="snap", pan=0.05),
-    Part("rim", "~ 808:5 ~ [808:5 ~ ~ 808:5]", (32, 40), -6, bus="snap", pan=0.05),
-    Part("hat", "[~ 808:1]*4", (8, 32), -10, pan=-0.2),
-    Part("hat", "[~ 808:1 ~ 808oh:2]*2", (32, 40), -10, pan=-0.2),
+    # ドラム: キックは 1 拍目と 2 拍目の裏、4 小節に 1 度だけ 4 拍目の裏にも。b ではキックだけ休む
+    Part("kick", KICK, (8, 24), -0.5, bus="kick"),
+    Part("kick", KICK, (32, 40), -0.5, bus="kick"),
+    Part("rim", "~ 808:5 ~ 808:5", (8, 40), -6, pan=0.1),
+    Part("hat", "[~ 808:1]*4", (8, 40), -10, pan=-0.2),
     Part("shaker", "drumtraks:0*8", (8, 40), -20, pan=0.25),
-    # サブベース: 3+3+2 の 8 分で押す。ブレイクは後半から全音符だけ
-    Part("bass", "f1@3 f1@3 f1@2", (8, 16), bus="bass", gain=-1, patch=BASS, legato=0.9, velocity=100),
-    Part("bass", "<[d2@3 d2@3 d2@2] [bb1@3 bb1@3 bb1@2] [a1@3 a1@3 a1@2] [c2@3 c2@3 c2@2]>", (16, 24), bus="bass", gain=-1,
-         patch=BASS, legato=0.9, velocity=100),
-    Part("bass", "<a1 c2>/2", (28, 32), bus="bass", gain=-1, patch=BASS, legato=0.98, velocity=80),
-    Part("bass", "<[d2@3 d2@3 d3@2] [bb1@3 bb1@3 bb2@2] [a1@3 a1@3 a2@2] [c2@3 c2@3 c3@2]>", (32, 40), bus="bass", gain=-1,
-         patch=BASS, legato=0.9, velocity=100),
+    # サブベース: 3+3+2 の 8 分。a は F の保続音
+    Part("bass", VAMP_BASS, (8, 24), bus="bass", gain=-1, patch=BASS, legato=0.9, velocity=100),
+    # b はキックで沈まない分と、F1 より高い D2 の分だけ大きく聞こえるので、パッドとベースを下げて a より少し静かに
+    Part("bass", "<[d2@3 d2@3 d2@2]!2 [bb1@3 bb1@3 bb1@2]!2>", (24, 32), bus="bass", gain=-3.5, patch=BASS, legato=0.9,
+         velocity=96),
+    Part("bass", VAMP_BASS, (32, 40), bus="bass", gain=-1, patch=BASS, legato=0.9, velocity=100),
     Part("bass", "f1", (40, 42), bus="bass", gain=-1, patch=BASS, legato=0.98, velocity=80),
     Part("bass", "f1/2", (42, 44), bus="bass", gain=-1, patch=BASS, legato=0.95, velocity=80),
     # 和音
-    Part("pad", VAMP_PAD, (0, 16), bus="pad", gain=-5, patch=PAD, legato=0.99, velocity=70),
-    Part("pad", PROG_PAD, (16, 24), bus="pad", gain=-5, patch=PAD, legato=0.99, velocity=70),
-    Part("pad", PROG_PAD + "/2", (24, 32), bus="pad", gain=-5, patch=PAD, legato=0.99, velocity=70),
-    Part("pad", PROG_PAD, (32, 40), bus="pad", gain=-5, patch=PAD, legato=0.99, velocity=70),
+    Part("pad", VAMP_PAD, (0, 24), bus="pad", gain=-5, patch=PAD, legato=0.99, velocity=70),
+    Part("pad", "<[f3,a3,c4,e4] [f3,a3,c4,d4]>/2", (24, 32), bus="pad", gain=-7, patch=PAD, legato=0.99, velocity=70),
+    Part("pad", VAMP_PAD, (32, 40), bus="pad", gain=-5, patch=PAD, legato=0.99, velocity=70),
     Part("pad", "<[a3,c4,e4,g4] [g3,b3,d4,a4]>", (40, 42), bus="pad", gain=-5, patch=PAD, legato=0.99, velocity=70),
     # 最後の和音は 2 小節伸ばし、マスターのフェードで明け方へ消す
     Part("pad", "[a3,c4,e4,g4,c5]/2", (42, 44), bus="pad", gain=-5, patch=PAD, legato=0.95, velocity=70),
-    Part("arp", VAMP_ARP, (4, 16), bus="arp", gain=-3.5, patch=ARP, legato=0.6, velocity=84),
-    Part("arp", PROG_ARP, (16, 24), bus="arp", gain=-3.5, patch=ARP, legato=0.6, velocity=84),
-    # ブレイクはパッドと一緒に倍の遅さ (4 分音符) にし、和音の変わり目を揃える
-    Part("arp", PROG_ARP + "/2", (24, 32), bus="arp", gain=-3.5, patch=ARP, legato=0.6, velocity=84),
-    Part("arp", PROG_ARP, (32, 40), bus="arp", gain=-3.5, patch=ARP, legato=0.6, velocity=84),
-    Part("arp", VAMP_ARP, (40, 42), bus="arp", gain=-3.5, patch=ARP, legato=0.6, velocity=84),
-    # リード: 4 小節の問い (lead) と答え (answer)。b と c で旋律を書き分け、c は高い音域へ
-    Part("lead", "<[~ ~ a4 c5 d5@3 e5] [f5@3 e5 d5@2 c5@2] [c5@6 ~ a4] [g4@4 ~ a4 c5 d5]>", (16, 20), bus="lead", gain=-8,
-         patch=LEAD, legato=1.06, velocity=92, params=GLIDE),
-    Part("answer", "<[e5@3 d5 ~ ~ c5 d5] [f5@2 g5@2 f5 e5 d5@2] [c5@3 a4 g4@2 a4@2] g4>", (20, 24), bus="lead", gain=-8,
-         patch=LEAD, legato=1.06, velocity=92, params=GLIDE),
-    Part("lead", "<[~ ~ a4 c5 d5 e5 a5@2] [g5@3 f5 e5@2 d5 c5] [c5@4 ~ d5 c5 a4] [g4@3 a4 c5@2 e5@2]>", (32, 36),
-         bus="lead", gain=-8, patch=LEAD, legato=1.06, velocity=92, params=GLIDE),
-    Part("answer", "<[f5@3 e5 d5@2 ~ a4] [d5@2 f5@2 a5@2 g5 f5] [e5@3 c5 ~ a4 c5 d5] d5>", (36, 40), bus="lead", gain=-8,
-         patch=LEAD, legato=1.06, velocity=92, params=GLIDE),
+    Part("arp", VAMP_ARP, (4, 24), bus="arp", gain=-3.5, patch=ARP, legato=0.6, velocity=84),
+    Part("arp", "<[a4 c5 e5 f5]*2!2 [a4 c5 d5 f5]*2!2>", (24, 32), bus="arp", gain=-3.5, patch=ARP, legato=0.6,
+         velocity=84),
+    Part("arp", VAMP_ARP, (32, 42), bus="arp", gain=-3.5, patch=ARP, legato=0.6, velocity=84),
 ]
 
 
@@ -129,8 +106,8 @@ def build(aspect: str = "16:9") -> Composition:
     def board(c, ctx):
         with node(c, ctx, "sky", origin=(W / 2, H / 2), label="空", span=(0, DUR)) as n:
             sky(n.c, n.t, W, H)
-        with node(c, ctx, "code", origin=(m, H * 0.3), label="パターンのコード", span=(0, DUR)) as n:
-            code(n.c, ctx, n.t, played, m, H * 0.3, W * 0.0135, n.prop("accent", pal.accent))
+        with node(c, ctx, "code", origin=(m, H * 0.35), label="パターンのコード", span=(0, DUR)) as n:
+            code(n.c, ctx, n.t, played, m, H * 0.35, W * 0.0135, n.prop("accent", pal.accent))
         with node(c, ctx, "section", origin=(m, H * 0.13), label="区間と和音", span=(0, DUR)) as n:
             harmony(n.c, n.t, m, H * 0.13, W * 0.016, n.prop("accent", pal.accent))
         with node(c, ctx, "title", origin=(W - m, H * 0.13), label="題", span=(0, DUR)) as n:
@@ -168,7 +145,7 @@ def sky(c, t: float, W: float, H: float) -> None:
     for i in range(70):
         x, y = hash01(i, 1) * W, hash01(i, 2) ** 1.6 * H * 0.62
         # コードの行の上には置かない (記号の点と見分けがつかない)
-        if x < W * 0.78 and H * 0.24 < y < H * 0.74:
+        if x < W * 0.78 and H * 0.29 < y < H * 0.72:
             continue
         tw = 0.55 + 0.45 * np.sin(t * (0.6 + hash01(i, 3) * 1.4) + hash01(i, 4) * 6.28)
         draw.circle(c, x, y, 0.8 + hash01(i, 5) * 1.3, color=pal.fg, alpha=fade * tw * (0.25 + 0.5 * hash01(i, 6)))
@@ -205,7 +182,7 @@ def harmony(c, t: float, x: float, y: float, size: float, accent: str) -> None:
     name, start = section_at(t)
     chords = HARMONY[name]
     bar = int(t // tl.bar_len) - start
-    per = {"intro": 2, "a": 2, "brk": 2, "outro": 1}.get(name, 1)
+    per = 1 if name == "outro" else 2
     cur = min(bar // per % len(chords) if name != "outro" else min(bar, 2), len(chords) - 1)
     text.text(c, name, x, y, font="mono", size=size, color=DIM)
     pen = x + size * 0.6 * 7
@@ -233,39 +210,29 @@ def make_audio(comp: Composition) -> str:
     for p in PARTS:
         ev = mx.pattern(p.pat, tl, start=tl.bar(p.bars[0]), end=tl.bar(p.bars[1]), bus=p.bus, gain_db=p.gain,
                         pan=p.pan, patch=p.patch, legato=p.legato, velocity=p.velocity, octave=p.octave,
-                        swing=SWING, params=p.params or None)
+                        swing=SWING)
         if p.row == "kick":
             kicks += [e["t"] for e in ev]
     mx.ambience(CRICKETS, start=0.0, end=tl.bar(18), level_db=-39, fade=4.0)
     mx.ambience(BIRDS, start=tl.bar(39), end=DUR, level_db=-36, fade=4.0)
-    mx.sfx(sfxlib.sound(RISER), tl.bar(8), None)
-    mx.sfx(sfxlib.sound(REVERSE), tl.bar(32), None)
     bar = tl.bar_len
     mx.fx("kick", pb.HighpassFilter(cutoff_frequency_hz=30),
           pb.Compressor(threshold_db=-14, ratio=2.5, attack_ms=8, release_ms=120))
     mx.fx("drums", pb.HighpassFilter(cutoff_frequency_hz=180), pb.LowpassFilter(cutoff_frequency_hz=9000),
           pb.Reverb(room_size=0.35, damping=0.6, wet_level=0.12, dry_level=1.0, width=1.0))
-    mx.fx("snap", pb.HighpassFilter(cutoff_frequency_hz=250), pb.LowpassFilter(cutoff_frequency_hz=8000),
-          pb.Reverb(room_size=0.7, damping=0.5, wet_level=0.3, dry_level=0.9, width=1.0))
     mx.fx("bass", pb.HighpassFilter(cutoff_frequency_hz=28), pb.LowpassFilter(cutoff_frequency_hz=300),
           pb.Distortion(drive_db=3), pb.LowpassFilter(cutoff_frequency_hz=900),
           pb.Compressor(threshold_db=-20, ratio=3, attack_ms=20, release_ms=150))
-    # パッドは夜の間はこもり、a で開き、ブレイクで一度閉じてから c の前に開ききる
+    # パッドは夜の間はこもり、a で開いたまま、終わりにまたこもる (途中で開閉させて山を作らない)
     mx.fx("pad", audio.Sweep(pb.LadderFilter(mode=pb.LadderFilter.Mode.LPF24, resonance=0.15),
-                             cutoff_hz=[(0, 380), (tl.bar(8), 3200), (tl.bar(24), 3200), (tl.bar(27), 900),
-                                        (tl.bar(32), 4200), (tl.bar(40), 4200), (DUR, 1400)]),
+                             cutoff_hz=[(0, 380), (tl.bar(8), 3200), (tl.bar(40), 3200), (DUR, 1400)]),
           pb.HighpassFilter(cutoff_frequency_hz=150), pb.Chorus(rate_hz=0.3, depth=0.2, mix=0.3),
           pb.Reverb(room_size=0.85, damping=0.5, wet_level=0.35, dry_level=0.8, width=1.0))
     mx.fx("arp", audio.Sweep(pb.LadderFilter(mode=pb.LadderFilter.Mode.LPF24, resonance=0.25),
-                             cutoff_hz=[(tl.bar(4), 500), (tl.bar(8), 5500), (tl.bar(24), 5500), (tl.bar(26), 700),
-                                        (tl.bar(31.5), 6000), (DUR, 6000)]),
+                             cutoff_hz=[(tl.bar(4), 500), (tl.bar(8), 5500)]),
           pb.HighpassFilter(cutoff_frequency_hz=250),
           pb.Delay(delay_seconds=bar / 16 * 3, feedback=0.38, mix=0.28),
           pb.Reverb(room_size=0.7, damping=0.5, wet_level=0.22, dry_level=1.0, width=1.0))
-    mx.fx("lead", pb.HighpassFilter(cutoff_frequency_hz=200), pb.LowpassFilter(cutoff_frequency_hz=7000),
-          pb.Chorus(rate_hz=0.4, depth=0.15, mix=0.25),
-          pb.Delay(delay_seconds=bar / 16 * 3, feedback=0.3, mix=0.2),
-          pb.Reverb(room_size=0.8, damping=0.5, wet_level=0.28, dry_level=1.0, width=1.0))
     mx.duck("pad", kicks, -6.0, 0.35)
     mx.duck("arp", kicks, -3.0, 0.25)
     mx.duck("bass", kicks, -4.0, 0.12)
