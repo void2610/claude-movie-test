@@ -1,5 +1,6 @@
 """afterglow。雨の夜のチルな lo-fi (80 BPM・D♭ メジャー・114 秒)。制作の判断は brief.md / style.md / shotlist.md にある。"""
 import math
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +21,8 @@ DUR = BARS * tl.bar_len
 SWING = 0.58
 # 最後の和音は 5 拍で離し、尺の終わり (6 拍目の後) までに残響を消す
 FINAL_BEATS = 5.0
+# スラーで前後の音を重ねる長さ。長いと 2 つの音程が同時に鳴り、電子音のようににじむ (CLAP の「機械的な合成音」0.6 → 0.2)
+SLUR_OVERLAP = 0.03
 GRETSCH = audio.SAMPLES_DIR / "gretsch"
 SAX = audio.SAMPLES_DIR / "sax"
 RAIN = "ambience/own-ov-abdcb580"
@@ -54,43 +57,51 @@ FORM = [("intro", MARU), ("a1", MARU * 2), ("b1", OHDO), ("brk", MARU), ("a2", M
 PROGRESSION = {"intro": "丸サ進行", "a1": "丸サ進行", "b1": "王道進行", "brk": "丸サ進行", "a2": "丸サ進行",
                "outro": "丸サ進行"}
 
-# メロディ: 小節 → [(拍, 長さ (拍), 音, 強さ)]。b1 は王道進行の上で上がっていき、a2 は丸サ進行のフック
+T3 = 1 / 3
+# メロディ: 小節 → [(拍, 長さ (拍), 音, 強さ, 記号)]。記号は s = 下からしゃくる、f = 終わりで落とす、v = ビブラートを深く、
+# g = 半音下の装飾音。2 小節の問いと答えで息継ぎし、同じ音型は移して使う (b1 の 12 小節目の型を 14 小節目で 5 度上に)
 SAX_LINE = {
-    11: [(3.0, 0.45, "F3", 78), (3.5, 0.45, "Ab3", 84)],
-    12: [(0.0, 1.75, "Bb3", 92), (2.0, 0.5, "Ab3", 80), (2.5, 1.25, "F3", 86)],
-    13: [(0.0, 1.5, "C4", 94), (1.5, 0.5, "Bb3", 80), (2.0, 2.0, "F3", 84)],
-    14: [(0.0, 0.75, "Ab3", 86), (0.75, 0.75, "Bb3", 80), (1.5, 2.25, "C4", 90)],
-    15: [(0.0, 2.5, "Db4", 96), (2.5, 0.5, "C4", 82), (3.0, 1.0, "Bb3", 84)],
-    16: [(0.0, 1.5, "Bb3", 88), (1.5, 0.5, "Gb3", 78), (2.0, 1.5, "F3", 84), (3.5, 0.5, "Gb3", 78)],
-    17: [(0.0, 2.0, "Db4", 98), (2.0, 0.5, "Bb3", 84), (2.5, 1.5, "F3", 86)],
-    18: [(0.0, 1.5, "Ab3", 86), (1.5, 0.5, "G3", 78), (2.0, 1.0, "Ab3", 86), (3.0, 1.0, "B3", 84)],
-    19: [(0.0, 2.0, "Bb3", 90), (2.0, 1.0, "Ab3", 82), (3.0, 1.0, "Gb3", 80)],
-    20: [(0.0, 3.5, "F3", 84)],
-    21: [(0.0, 3.5, "A3", 88)],
-    22: [(0.0, 2.0, "C4", 90), (2.0, 1.5, "Db4", 86)],
-    23: [(0.0, 1.75, "B3", 84), (2.0, 1.25, "Bb3", 80)],
-    24: [(0.5, 0.5, "Db4", 86), (1.0, 0.5, "C4", 82), (1.5, 1.5, "Bb3", 90), (3.0, 0.5, "Ab3", 78),
-         (3.5, 0.5, "Bb3", 80)],
-    25: [(0.0, 2.0, "A3", 92), (2.0, 0.5, "Gb3", 80), (2.5, 1.5, "F3", 84)],
-    26: [(0.5, 0.5, "F3", 80), (1.0, 0.5, "Ab3", 84), (1.5, 1.5, "C4", 92), (3.0, 1.0, "Bb3", 84)],
-    27: [(0.0, 1.0, "B3", 88), (1.0, 1.0, "Bb3", 82), (2.0, 1.0, "Ab3", 80), (3.0, 1.0, "F3", 82)],
-    28: [(0.5, 0.5, "Db4", 88), (1.0, 0.5, "C4", 84), (1.5, 1.0, "Bb3", 90), (2.5, 0.5, "Db4", 86),
-         (3.0, 1.0, "C4", 84)],
-    29: [(0.0, 1.5, "Db4", 94), (1.5, 0.5, "C4", 84), (2.0, 2.0, "A3", 90)],
-    30: [(0.0, 1.0, "Ab3", 84), (1.0, 0.5, "Bb3", 82), (1.5, 2.0, "Db4", 96)],
-    31: [(0.0, 1.5, "B3", 90), (1.5, 0.5, "Bb3", 82), (2.0, 1.0, "Ab3", 82), (3.0, 1.0, "F3", 80)],
-    32: [(0.0, 3.0, "Bb3", 82)],
-    33: [(0.0, 3.0, "A3", 80)],
-    34: [(0.0, 1.5, "C4", 80), (1.5, 1.5, "Ab3", 76)],
-    35: [(0.0, 1.75, "Gb3", 76), (2.0, 1.75, "F3", 74)],
-    36: [(0.0, 4.0, "F3", 72)],
+    11: [(3.0, T3, "Ab2", 70, "s"), (3 + T3, T3, "Bb2", 74), (3 + 2 * T3, T3, "Db3", 78)],
+    12: [(0.0, 1.5, "F3", 86, "s"), (1 + 2 * T3, T3, "Eb3", 70), (2.0, 0.5, "Db3", 76), (2.5, 1.0, "Bb2", 80, "f")],
+    13: [(0.5, 0.5, "C3", 74), (1.0, 0.5, "Eb3", 80), (1.5, 1.0, "F3", 86), (2.5, 0.5, "Eb3", 74), (3.0, 0.75, "C3", 80)],
+    14: [(0.0, 1.5, "C4", 90, "s"), (1 + 2 * T3, T3, "Bb3", 72), (2.0, 0.5, "Ab3", 80), (2.5, 1.0, "F3", 82, "f")],
+    15: [(0.5, 0.25, "F3", 72), (0.75, 0.25, "Ab3", 76), (1.0, 0.5, "Bb3", 82), (1.5, 0.5, "Db4", 88),
+         (2.0, 2.0, "C4", 92, "v")],
+    16: [(0.0, T3, "Bb3", 78), (T3, T3, "Db4", 84), (2 * T3, T3, "Bb3", 76), (1.0, 1.0, "Gb3", 84), (2.0, 0.5, "F3", 76),
+         (2.5, 0.5, "Eb3", 74), (3.0, 0.75, "Gb3", 80), (3.75, 0.25, "Ab3", 78)],
+    17: [(0.0, 2.5, "Db4", 100, "sv"), (2.5, 0.25, "C4", 78), (2.75, 0.25, "Bb3", 76), (3.0, 1.0, "Ab3", 82)],
+    18: [(0.0, 0.75, "C4", 84), (0.75, 0.25, "Bb3", 72), (1.0, 0.5, "Ab3", 78), (1.5, 0.5, "G3", 74),
+         (2.0, 0.5, "D3", 80, "s"), (2.5, 0.5, "F3", 76), (3.0, 1.0, "Ab3", 82)],
+    19: [(0.0, 1.5, "Gb3", 84), (1.5, 0.5, "Ab3", 76), (2.0, 1.0, "Bb3", 82), (3.0, 1.0, "Db4", 86, "f")],
+    20: [(1.0, 2.5, "Bb2", 76, "s")],
+    21: [(0.0, 0.5, "A2", 70), (0.5, 2.5, "Eb3", 80)],
+    22: [(0.0, T3, "Db3", 72), (T3, T3, "F3", 78), (2 * T3, T3, "Ab3", 82), (1.0, 2.0, "C4", 90, "s")],
+    23: [(0.0, 1.0, "B3", 84), (1.0, 0.5, "Bb3", 76), (1.5, 0.5, "Gb3", 72), (2.0, 1.0, "F3", 80, "f")],
+    24: [(0.5, 0.5, "Db3", 78), (1.0, 0.5, "F3", 84), (1.5, 0.5, "Ab3", 86), (2.0, 1.25, "Bb3", 92, "v"),
+         (3.5, 0.5, "Ab3", 76)],
+    25: [(0.0, 0.75, "A3", 90, "s"), (0.75, 0.25, "Gb3", 72), (1.0, 1.0, "F3", 82), (2.5, 0.25, "Ab3", 74),
+         (2.75, 1.25, "A3", 84)],
+    26: [(0.5, 0.5, "F3", 80), (1.0, 0.5, "Ab3", 84, "g"), (1.5, 0.5, "C4", 90), (2.0, 1.0, "Bb3", 86),
+         (3.0, 0.5, "Db4", 84), (3.5, 0.5, "C4", 78)],
+    27: [(0.0, 1.0, "Gb3", 82, "s"), (1.0, 0.5, "B2", 76), (1.5, 0.5, "Eb3", 78), (2.0, 1.75, "F3", 84, "f")],
+    28: [(0.0, 0.5, "Db4", 92, "s"), (0.5, 0.5, "C4", 84), (1.0, 0.5, "Bb3", 82), (1.5, 0.5, "Ab3", 78),
+         (2.0, T3, "Ab3", 76), (2 + T3, T3, "Bb3", 80), (2 + 2 * T3, T3, "C4", 84), (3.0, 1.0, "Db4", 90)],
+    29: [(0.5, 0.5, "Eb3", 80), (1.0, 0.5, "Gb3", 84), (1.5, 2.0, "A3", 92, "sv")],
+    30: [(0.0, 1.0, "Db4", 96, "v"), (1.0, T3, "C4", 84), (1 + T3, T3, "Db4", 86), (1 + 2 * T3, T3, "C4", 80),
+         (2.0, 0.5, "Ab3", 80, "g"), (2.5, 1.0, "Bb3", 84)],
+    31: [(0.0, T3, "Eb3", 74), (T3, T3, "Gb3", 78), (2 * T3, T3, "Bb3", 82), (1.0, 1.0, "B3", 88, "v"),
+         (2.0, 0.5, "Bb3", 80), (2.5, 0.5, "Ab3", 76), (3.0, 1.0, "Ab3", 80, "f")],
+    32: [(1.0, 1.5, "F3", 78, "s"), (2 + 2 * T3, T3, "Eb3", 66), (3.0, 1.0, "Db3", 72)],
+    33: [(0.5, 2.5, "A2", 72, "s")],
+    34: [(1.0, 0.5, "Db3", 70), (1.5, 2.0, "F3", 74)],
+    35: [(0.0, 1.5, "Gb3", 72), (2.0, 2 * T3, "Ab3", 70), (2 + 2 * T3, T3, "Bb3", 66)],
+    36: [(0.0, 4.0, "F3", 70, "s")],
 }
 # a1 はサックスが入る前なので、エレピの上の音で短く答える
 KEYS_LINE = {
     4: [(2.5, 0.25, "Db5", 70), (2.75, 0.25, "C5", 64), (3.0, 0.9, "Bb4", 72)],
     7: [(3.0, 0.25, "Bb4", 70), (3.25, 0.25, "Ab4", 64), (3.5, 0.5, "F4", 68)],
     8: [(2.5, 0.25, "Db5", 72), (2.75, 0.25, "C5", 66), (3.0, 0.5, "Bb4", 72), (3.5, 0.5, "Ab4", 64)],
-    11: [(2.0, 0.25, "Bb4", 70), (2.25, 0.25, "B4", 62), (2.5, 0.25, "D5", 70), (2.75, 1.0, "F5", 66)],
 }
 # 実測の音程 (pyin、Hz)。サンプルは A440 より 11〜41 セント高いので、再生速度で合わせる
 SAX_F0 = {"006_notes121c2": 65.81, "008_notes121csharp2": 70.13, "012_notes121eflat": 78.26,
@@ -120,7 +131,9 @@ def chord_at(bar: int, beat: float) -> str:
 
 
 def at(bar: float, beat: float = 0.0) -> float:
-    """小節と拍から秒。8 分の中の 16 分の裏を SWING の位置へずらす。"""
+    """小節と拍から秒。8 分の中の 16 分の裏を SWING の位置へずらす。3 連符など 16 分の格子に無い位置はそのまま。"""
+    if abs(beat * 4 - round(beat * 4)) > 1e-6:
+        return tl.bar(bar) + beat * tl.beat_len
     e = math.floor(beat * 2 + 1e-9)
     u = beat * 2 - e
     u = u * 2 * SWING if u < 0.5 else SWING + (u - 0.5) * 2 * (1 - SWING)
@@ -308,24 +321,97 @@ def pad(mx: audio.Mix) -> None:
     mx.instrument(notes, patch="Pads/MKS-70 Warm Pad", bus="pad", gain_db=-13.5)
 
 
+@lru_cache(maxsize=32)
+def sax_source(name: str) -> np.ndarray:
+    """サックスの実音。吹き始めまでの無音 (最大 42ms) を詰める。"""
+    src = audio.load(SAX / f"{name}.wav")
+    env = np.abs(src).max(axis=0)
+    return src[:, max(0, int(np.argmax(env > env.max() * 0.03)) - int(0.005 * audio.SR)):]
+
+
+def sax_events() -> list[dict]:
+    """SAX_LINE を時刻の順の音にし、フレーズの頭と終わり、前の音からのスラーを決める。"""
+    ev = [dict(bar=bar, beat=b, beats=d, midi=audio.midi(n), vel=v, marks=mk[0] if mk else "",
+               t=at(bar, b), pos=bar * 4 + b)
+          for bar, line in sorted(SAX_LINE.items()) for b, d, n, v, *mk in line]
+    for i, e in enumerate(ev):
+        prev = ev[i - 1] if i else None
+        gap = e["pos"] - (prev["pos"] + prev["beats"]) if prev else 99.0
+        e["head"] = gap > 0.3
+        # 短い音の並びは息を切らずに指で変える (つながった音のおよそ 3/4)。大きく跳ぶ音は吹き直す
+        e["slur"] = (not e["head"] and abs(e["midi"] - prev["midi"]) <= 5
+                     and min(e["beats"], prev["beats"]) <= 0.5 and hash01(e["pos"], 41) > 0.25)
+        e["from"] = prev["midi"] if e["slur"] else None
+    for e, nx in zip(ev, ev[1:] + [None]):
+        e["tail"] = nx is None or nx["head"]
+        # つながる音は次の音と重ねすぎない (2 つの音程が同時に鳴ると電子音のようににじむ)。フレーズの終わりだけ長く消える
+        if nx is not None and nx["slur"]:
+            e["dur"], e["rel"] = nx["t"] - e["t"], SLUR_OVERLAP
+        elif nx is not None and not nx["head"]:
+            e["dur"], e["rel"] = (nx["t"] - e["t"]) * 0.94, 0.03
+        else:
+            e["dur"], e["rel"] = e["beats"] * tl.beat_len * 0.94, 0.15
+    return ev
+
+
+def sax_note(midi: int, vel: int, dur: float, marks: str = "", slur_from: int | None = None,
+             seed: float = 0.0, rel: float = 0.1) -> np.ndarray:
+    """1 音を吹く。録音の実音は音程も音量もまっすぐなので、音程 (セント) と音量を時間で動かして読む。"""
+    from scipy import signal
+    sr = audio.SR
+    target = audio.hz(midi)
+    name, f0 = min(SAX_F0.items(), key=lambda kv: abs(math.log2(target / kv[1])))
+    src = sax_source(name)
+    n = int((dur + rel) * sr)
+    t = np.arange(n) / sr
+    cents = np.full(n, (hash01(seed, 1) - 0.5) * 8)
+    if slur_from is not None:
+        cents += (slur_from - midi) * 100 * np.exp(-t / 0.006)
+    elif "s" in marks:
+        g = 0.08 + hash01(seed, 2) * 0.06
+        cents -= (70 + hash01(seed, 3) * 50) * np.clip(1 - t / g, 0, 1) ** 2
+    if "g" in marks:
+        cents += np.where(t < 0.05, -100.0, -100.0 * np.exp(-(t - 0.05) / 0.012))
+    if dur > 0.55:
+        # ビブラートは音を伸ばしてから遅れて深くなり、速さと深さも揺らぐ (一定の深い正弦波はゲーム機の音に聞こえる)
+        on = min(0.3, dur * 0.35)
+        depth = np.clip(6 + (vel - 70) * 0.3, 5, 14) * (1.4 if "v" in marks else 1.0)
+        hz_ = (4.8 + hash01(seed, 4) * 0.9) * (1 + 0.08 * np.sin(2 * np.pi * 0.7 * t + seed))
+        wob = 1 + 0.35 * np.sin(2 * np.pi * 0.45 * t + seed * 1.7)
+        vib = wob * np.clip((t - on) / 0.45, 0, 1) * np.sin(2 * np.pi * np.cumsum(hz_ * (t >= on)) / sr)
+        cents += depth * vib
+    else:
+        vib = np.zeros(n)
+    fall = np.clip((t - (dur - 0.22)) / 0.22, 0, 1) if "f" in marks else np.zeros(n)
+    cents -= 300 * fall ** 1.6
+    rate = target / f0 * 2 ** (cents / 1200)
+    pos = (int(0.035 * sr) if slur_from is not None else 0) + np.concatenate([[0.0], np.cumsum(rate[:-1])])
+    n = int(np.searchsorted(pos, src.shape[1] - 2))
+    t, pos = t[:n], pos[:n]
+    idx = np.arange(src.shape[1])
+    y = np.vstack([np.interp(pos, idx, ch) for ch in src])
+    # 長い音は膨らんでから少し引き、短い音は頭を少し強く吹く
+    if dur > 0.6:
+        u = np.clip(t / dur, 0, 1)
+        env = 10 ** ((-2.5 + 3.5 * np.sin(np.pi * u) ** 0.7 - u) / 20)
+    else:
+        env = 1 + 0.25 * np.exp(-t / 0.06)
+    env *= np.clip(t / (SLUR_OVERLAP if slur_from is not None else 0.004), 0, 1)
+    env *= (1 - fall[:n]) ** 0.7
+    env *= np.where(t > dur, np.cos(np.clip((t - dur) / rel, 0, 1) * np.pi / 2), 1.0)
+    env *= 10 ** (0.8 * vib[:n] / 20)
+    # 弱く吹いた音ほど暗い (倍音が減る)。強弱 60 で 3.2kHz、80 で 6.8kHz
+    fc = min(3200 * 2 ** ((vel - 60) / 18), sr * 0.45)
+    y = signal.lfilter(*signal.butter(1, fc, fs=sr), y, axis=1)
+    return (y * env).astype(np.float32)
+
+
 def sax(mx: audio.Mix) -> None:
-    """録音のサックスを 1 音ずつ置く。近い実音を選び、実測の音程との比で再生速度を決める。"""
-    rel = 0.12
-    for bar, line in SAX_LINE.items():
-        for b, d, n, v in line:
-            target = audio.hz(n)
-            name, f0 = min(SAX_F0.items(), key=lambda kv: abs(math.log2(target / kv[1])))
-            rate = target / f0
-            src = audio.load(SAX / f"{name}.wav")
-            # 吹き始めまでの無音 (最大 42ms) を詰め、拍に対する遅れを後ノリの 12ms だけにする
-            env = np.abs(src).max(axis=0)
-            src = src[:, max(0, int(np.argmax(env > env.max() * 0.03)) - int(0.005 * audio.SR)):]
-            dur = d * tl.beat_len * 0.96
-            seg = src[:, :min(src.shape[1], int((dur + rel) * audio.SR * rate))].copy()
-            k = min(int(rel * audio.SR * rate), seg.shape[1])
-            seg[:, -k:] *= np.cos(np.linspace(0, np.pi / 2, k)).astype(np.float32)
-            t = at(bar, b) + 0.012 + jit(bar, b, 31, ms=8)
-            mx.place(seg, t, gain_db=-2.5 + (v - 90) / 6, pan=0.08, bus="sax", rate=rate)
+    """録音のサックスを 1 音ずつ吹かせて置く。フレーズの頭は少し遅れて入り、音ごとにも揺れる。"""
+    for e in sax_events():
+        late = 0.012 + (hash01(e["bar"], 43) * 0.02 if e["head"] else 0.0) + jit(e["pos"], 31, ms=7)
+        buf = sax_note(e["midi"], e["vel"], e["dur"], e["marks"], e["from"], seed=e["pos"], rel=e["rel"])
+        mx.place(buf, e["t"] + late, gain_db=-1.5 + (e["vel"] - 90) / 5, pan=0.08, bus="sax")
 
 
 def make_audio(comp: Composition) -> str:
