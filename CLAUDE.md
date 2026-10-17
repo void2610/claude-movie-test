@@ -97,6 +97,7 @@ uv run pytest                                           # テスト (描画を�
 - `Knowledge/motion-studio-references-2026-10.md`: 参考事例の調査 (rari の記事・motionpromptgallery など)
 - `Knowledge/motion-sound-and-variants-references-2026-10.md`: 実録音の効果音と音の QA (opus-sound-layer)、案を並べて選ぶ反復 (fframes)
 - `Knowledge/iteration-trail-references-2026-10.md`: 反復の軌跡を見せる動画 (版ごとのコマ・系譜・タイムラインの段) の調査と `motion trail`
+- `Knowledge/music-production-afterglow-2026-10.md`: 今ある機能で作った曲 (projects/afterglow) で分かった、音楽を作れる範囲・音色を曲の中で選び直す理由・楽器の音量の揃え方・サックスの実音の使い方
 - `Knowledge/earshot-ears-for-agents-2026-10.md`: earshot (エージェントの耳) の CLAP の較正・プロの 7 本の音の実測・取り込んだものと見送ったもの
 - `Knowledge/manimgx-agent-animation-engine-2026-10.md`: ManimGX (Rust + wgpu、Manim 互換) の速さの工夫と、エージェント向けの確認手段 (`inspect` のストーリーボードとレイアウト検査)
 - `Knowledge/shneural-engine-anatomy.md`: 自作 Python エンジンの構成例 (BPM 基準の core、シーンごとのファイル、`f(t)` 型のレンダラ、コンタクトシートでの自己レビュー)
