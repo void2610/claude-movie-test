@@ -136,6 +136,58 @@ def adsr(n: int, sr: int, a: float, d: float, s: float, r: float, gate: float) -
     return env.astype(np.float32)
 
 
+class Sweep:
+    """pedalboard のエフェクトの値を時刻で動かす (フィルタの開閉など)。Mix.fx の並びにそのまま入れる。
+
+        mx.fx("pad", audio.Sweep(pb.LowpassFilter(), cutoff_frequency_hz=[(0, 400), (12, 6000)]))
+
+    値は (秒, 値) の折れ線で、両端の外は端の値のまま。正の値どうしは対数で補間する (周波数の開き方が耳に等速になる)。
+    """
+
+    def __init__(self, plugin, block: float = 0.004, **curves: list[tuple[float, float]]):
+        self.plugin, self.block = plugin, block
+        self.curves = {k: sorted(v) for k, v in curves.items()}
+
+    def value(self, name: str, t: float) -> float:
+        pts = self.curves[name]
+        ts = [p[0] for p in pts]
+        i = int(np.searchsorted(ts, t))
+        if i == 0:
+            return pts[0][1]
+        if i >= len(pts):
+            return pts[-1][1]
+        (t0, v0), (t1, v1) = pts[i - 1], pts[i]
+        u = (t - t0) / max(t1 - t0, 1e-9)
+        if v0 > 0 and v1 > 0:
+            return float(v0 * (v1 / v0) ** u)
+        return float(v0 + (v1 - v0) * u)
+
+    def __call__(self, y: np.ndarray, sr: int) -> np.ndarray:
+        step = max(1, int(self.block * sr))
+        out = np.empty_like(y)
+        self.plugin.reset()
+        for i in range(0, y.shape[1], step):
+            for k in self.curves:
+                setattr(self.plugin, k, self.value(k, (i + step / 2) / sr))
+            out[:, i:i + step] = self.plugin.process(y[:, i:i + step], sr, reset=False)
+        return out
+
+
+def _chain(plugins: list, y: np.ndarray, sr: int) -> np.ndarray:
+    """pedalboard のエフェクトは続く分をまとめてかけ、Sweep など (y, sr) を受ける関数はその位置で通す。"""
+    run = []
+    for p in list(plugins) + [None]:
+        if isinstance(p, pb.Plugin):
+            run.append(p)
+            continue
+        if run:
+            y = pb.Pedalboard(run)(y, sr)
+            run = []
+        if p is not None:
+            y = p(y, sr)
+    return y
+
+
 def limit(y: np.ndarray, sr: int, ceiling_db: float = -1.0, lookahead: float = 0.005,
           release: float = 0.08) -> np.ndarray:
     """先読み型のピークリミッター。ピークが ceiling_db を超えないようにゲインを下げる。"""
@@ -388,6 +440,22 @@ def _room(y: np.ndarray, decay: float, wet_db: float, sr: int, seed: int = 7) ->
     return (y + wet * 10 ** (wet_db / 20)).astype(np.float32)
 
 
+def pattern_events(pat: str, tl, start: float | None, end: float, swing: float = 0.5) -> list[dict]:
+    """Mix.pattern が鳴らす音の時刻だけを返す (画面のコードを光らせる絵の側で、音を鳴らさずに使う)。"""
+    from . import pattern as pt
+    cycle = tl.bar_len
+    start = tl.offset if start is None else start
+    out = []
+    for e in pt.events(pat, max(math.ceil((end - start) / cycle - 1e-9), 0)):
+        t = start + float(e.start) * cycle
+        u = (e.start % 1) * 16
+        if u.denominator == 1 and u.numerator % 2 == 1:
+            t += (swing - 0.5) * cycle / 8
+        if t < end - 1e-9:
+            out.append(dict(t=t, dur=float(e.end - e.start) * cycle, value=e.value, span=e.span, pattern=pat))
+    return out
+
+
 class Mix:
     def __init__(self, duration: float, sr: int = SR, tail: float = 1.5):
         self.sr = sr
@@ -610,33 +678,28 @@ class Mix:
 
     def pattern(self, pat: str, tl, *, start: float | None = None, end: float | None = None, bus: str = "drums",
                 gain_db: float = 0.0, pan: float = 0.0, patch: str | Path | None = None, wave: str | None = None,
-                legato: float = 1.0, velocity: int = 100, octave: int = 3) -> list[dict]:
+                legato: float = 1.0, velocity: int = 100, octave: int = 3, swing: float = 0.5,
+                params: dict | None = None) -> list[dict]:
         """TidalCycles / Strudel の記法で鳴らす。1 周期 = tl の 1 小節で、start (既定は最初の小節頭) から end まで繰り返す。
 
         patch (Surge XT) か wave (内蔵シンセ) を渡すと音名・数を音高として弾き、それ以外は Dirt-Samples の名前
         (「808bd:3」) として鳴らす。返り値は鳴らした音 (t, dur, value, span) で、overlay.pattern_code に渡すと
-        画面のコードの、鳴っている語を光らせられる。
+        画面のコードの、鳴っている語を光らせられる。swing は 16 分の裏を 8 分の中のどこに置くか (0.5 でまっすぐ、
+        0.58 で 8 分の 58% の位置)。3 連符など 16 分の格子に無い音は動かさない。params は instrument と同じ
+        (Surge XT のポルタメントなど、パッチに上書きする値)。
         """
         from . import pattern as pt
-        cycle = tl.bar_len
-        start = tl.offset if start is None else start
-        end = self.duration if end is None else end
-        n = max(math.ceil((end - start) / cycle - 1e-9), 0)
-        out, notes = [], []
-        for e in pt.events(pat, n):
-            t = start + float(e.start) * cycle
-            if t >= end - 1e-9:
-                continue
-            dur = float(e.end - e.start) * cycle
-            out.append(dict(t=t, dur=dur, value=e.value, span=e.span, pattern=pat))
-            num = pt.note_number(e.value, octave) if (patch is not None or wave) else None
+        out = pattern_events(pat, tl, start, self.duration if end is None else end, swing)
+        notes = []
+        for e in out:
+            num = pt.note_number(e["value"], octave) if (patch is not None or wave) else None
             if num is not None:
-                notes.append((t, dur * legato, num, velocity))
+                notes.append((e["t"], e["dur"] * legato, num, velocity))
             else:
-                name, idx = pt.sample_name(e.value)
-                self.hit(name, t, i=idx, gain_db=gain_db, pan=pan, bus=bus)
+                name, idx = pt.sample_name(e["value"])
+                self.hit(name, e["t"], i=idx, gain_db=gain_db, pan=pan, bus=bus)
         if notes and patch is not None:
-            self.instrument(notes, patch=patch, bus=bus, gain_db=gain_db)
+            self.instrument(notes, patch=patch, bus=bus, gain_db=gain_db, params=params)
         for t, d, num, _ in (notes if patch is None else []):
             self.tone(t, d, num, wave=wave, gain_db=gain_db, pan=pan, bus=bus)
         return out
@@ -668,7 +731,7 @@ class Mix:
     def _proc(self, name: str) -> np.ndarray:
         y = self.buses[name]
         if name in self.chains:
-            y = pb.Pedalboard(self.chains[name])(y, self.sr)
+            y = _chain(self.chains[name], y, self.sr)
         if name in self.ducks:
             y = y * self._duck_env(*self.ducks[name])
         z = np.zeros((2, self.n), np.float32)
@@ -750,7 +813,7 @@ class Mix:
         procs = self._processed()
         src = sum(procs.values(), np.zeros((2, self.n), np.float32))
         if master:
-            src = pb.Pedalboard(master)(src, self.sr)
+            src = _chain(master, src, self.sr)
         sfx_buses = sorted({e["bus"] for e in self.events})
         stems = {"sfx": sum((procs[b] for b in sfx_buses if b in procs), np.zeros((2, self.n), np.float32)),
                  "bed": sum((v for k, v in procs.items() if k not in sfx_buses), np.zeros((2, self.n), np.float32))}

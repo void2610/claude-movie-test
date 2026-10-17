@@ -176,15 +176,19 @@ def get_font(name: str) -> Font:
     return Font(p)
 
 
+# コードを見せる文字列用。等幅の書体は「<~」「->」などを 1 つの記号にまとめるので、書いた文字のまま並べる
+CODE = {"kern": True, "liga": False, "calt": False}
+
+
 def shape(s: str, font: str = "sans", size: float = 100.0, axes: Axes = None, tracking: float = 0.0,
-          fallback: list[str] | None = None) -> Shaped:
-    """文字列を組む。font に字形が無い文字 (日本語等) は fallback のフォントで補う。"""
+          fallback: list[str] | None = None, features: dict | None = None) -> Shaped:
+    """文字列を組む。font に字形が無い文字 (日本語等) は fallback のフォントで補う。features は OpenType の機能の指定。"""
     primary = get_font(font)
     chain = [primary] + [get_font(n) for n in (FALLBACK if fallback is None else fallback) if n != font]
     glyphs, xs, ys, adv, clusters, fonts = [], [], [], [], [], []
     pen = 0.0
     for a, b, f in _runs(s, chain):
-        for gid, cl, dx, dy, ax in f.shape_run(s[a:b], size, axes):
+        for gid, cl, dx, dy, ax in f.shape_run(s[a:b], size, axes, features):
             glyphs.append(gid)
             clusters.append(a + cl)
             xs.append(pen + dx)
@@ -207,9 +211,10 @@ def origin(sh: Shaped, x: float, y: float, align: str = "left", valign: str = "b
 
 def text(c: skia.Canvas, s: str, x: float, y: float, *, font: str = "sans", size: float = 100.0,
          axes: Axes = None, color: Color | str = "#ffffff", align: str = "left", valign: str = "baseline",
-         tracking: float = 0.0, alpha: float = 1.0, paint: skia.Paint | None = None, **paint_kw) -> Shaped:
+         tracking: float = 0.0, alpha: float = 1.0, paint: skia.Paint | None = None, features: dict | None = None,
+         **paint_kw) -> Shaped:
     """文字列を描く。valign="cap" で (x, y) が大文字の高さの中心になる。"""
-    sh = shape(s, font, size, axes, tracking)
+    sh = shape(s, font, size, axes, tracking, features=features)
     ox, oy = origin(sh, x, y, align, valign)
     blob = sh.blob()
     if blob is not None:

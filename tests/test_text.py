@@ -44,3 +44,10 @@ def test_layout_wraps_and_applies_kinsoku():
     assert all(ln.shaped.width <= 200 + 1e-6 for ln in lines)
     assert not any(ln.shaped.text.startswith("。") for ln in lines)
     assert "".join(ln.shaped.text for ln in lines) == s
+
+
+def test_code_features_keep_the_written_characters():
+    # 等幅の書体は「<~」「->」を 1 つの矢印にまとめるので、パターンのコードは書いた文字のまま並べる
+    sh = text.shape("<~ ->", "mono", 30, features=text.CODE)
+    assert sh.glyphs == [text.shape(ch, "mono", 30).glyphs[0] for ch in "<~ ->"]
+    assert text.shape("<~ ->", "mono", 30).glyphs != sh.glyphs

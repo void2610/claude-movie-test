@@ -13,7 +13,7 @@ from .color import Color, to_color
 from .draw import paint, path, trim
 from .nodes import note_text
 from .scene import Ctx, Scene
-from .text import layout, shape, text
+from .text import CODE, layout, shape, text
 
 
 def callout(c: skia.Canvas, target: tuple[float, float], label: str, p: float, *, offset=(160, -120),
@@ -126,7 +126,7 @@ def pattern_code(c: skia.Canvas, ctx: Ctx, code: str, played: list[dict], x: flo
         li = max(k for k, s0 in enumerate(starts) if s0 <= i)
         key = (li, i - starts[li])
         if key not in widths:
-            widths[key] = shape(lines[li][:key[1]], font, size).width
+            widths[key] = shape(lines[li][:key[1]], font, size, features=CODE).width
         return x + widths[key], y + li * size * leading
 
     glow: dict[tuple[int, int], float] = {}
@@ -138,14 +138,15 @@ def pattern_code(c: skia.Canvas, ctx: Ctx, code: str, played: list[dict], x: flo
         span = (e["span"][0] + off, e["span"][1] + off)
         glow[span] = max(glow.get(span, 0.0), 1.0 - (ctx.t - e["t"]) / life)
     for i, ln in enumerate(lines):
-        text(c, ln, x, y + i * size * leading, font=font, size=size, color=color, valign="cap", alpha=alpha)
+        text(c, ln, x, y + i * size * leading, font=font, size=size, color=color, valign="cap", alpha=alpha,
+             features=CODE)
     hc = to_color(hi)
     for (a, b), k in sorted(glow.items()):
         (x0, ly), (x1, _) = at(a), at(b)
         pad = size * 0.18
         bg = skia.Paint(AntiAlias=True, Color=hc.alpha(0.22 * k * alpha).skia())
         c.drawRoundRect(skia.Rect.MakeLTRB(x0 - pad, ly - size * 0.62, x1 + pad, ly + size * 0.62), pad, pad, bg)
-        text(c, code[a:b], x0, ly, font=font, size=size, color=hi, valign="cap", alpha=k * alpha)
+        text(c, code[a:b], x0, ly, font=font, size=size, color=hi, valign="cap", alpha=k * alpha, features=CODE)
 
 
 @dataclass

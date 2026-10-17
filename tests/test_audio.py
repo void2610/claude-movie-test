@@ -132,3 +132,28 @@ def test_pattern_plays_samples_and_notes_on_the_bar_grid():
     assert on(0.5) > 0.05 and on(0.25) < on(0.5) * 0.3
     ev = mx.pattern("<a3 c4>", tl, wave="sine", bus="lead", gain_db=-6)
     assert [e["value"] for e in ev] == ["a3", "c4"] and np.abs(mx.buses["lead"]).max() > 0.01
+
+
+def test_pattern_swing_moves_only_the_sixteenth_offbeats():
+    from motion.timeline import Timeline
+    tl = Timeline(bpm=120)                      # 1 小節 = 2 秒、16 分 = 0.125 秒
+    ev = audio.Mix(2.0, tail=0.5).pattern("hh*16, [cp cp cp]", tl, swing=0.6)
+    hh = [round(e["t"], 4) for e in ev if e["value"] == "hh"]
+    assert hh[:4] == [0.0, 0.15, 0.25, 0.4]
+    assert [round(e["t"], 4) for e in ev if e["value"] == "cp"] == [0.0, 0.6667, 1.3333]
+
+
+def test_sweep_opens_a_filter_over_time():
+    import pedalboard as pb
+    sr = 48000
+    rng = np.random.default_rng(0)
+    y = rng.standard_normal((2, sr * 2)).astype(np.float32) * 0.1
+    mx = audio.Mix(2.0, tail=0.0)
+    mx.bus("pad")[:] += y
+    mx.fx("pad", audio.Sweep(pb.LowpassFilter(), cutoff_frequency_hz=[(0.0, 300.0), (2.0, 12000.0)]),
+          pb.Gain(gain_db=0.0))
+    out = mx._proc("pad")
+    hi = lambda a, b: audio._band(out[0, int(a * sr):int(b * sr)], 4000, 12000, sr)  # noqa: E731
+    assert hi(1.6, 1.9) > hi(0.1, 0.4) * 8
+    sw = audio.Sweep(pb.LowpassFilter(), cutoff_frequency_hz=[(0.0, 100.0), (1.0, 10000.0)])
+    assert round(sw.value("cutoff_frequency_hz", 0.5)) == 1000 and sw.value("cutoff_frequency_hz", 5.0) == 10000
