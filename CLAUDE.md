@@ -63,11 +63,11 @@ uv run pytest                                           # テスト (描画を�
 | `texture` | `paper` (くしゃっとした紙)、`halftone` (網点)、`misregister` (印刷の版ずれ。衝撃の時だけ強める) |
 | `anim` / `easing` | `tween` `progress` `Keys` `spring` `stagger` `window` `impact`、各種イージングと `cubic_bezier` |
 | `draw` / `color` | 図形・パス・`trim`・`transform` / `layer` / `clip_rect`、`Color` `Palette` |
-| `text` | harfbuzz で組み、可変フォントの軸を指定して描く。`letters()` で 1 文字ずつ動かせる。日本語は `jp` (Noto Sans JP) に自動で切り替わる。`paragraph` / `layout` で禁則つきの折り返し。フォントは `assets/fonts` (`sans` / `sans-mono` / `mono` / `jp`) |
+| `text` | harfbuzz で組み、可変フォントの軸を指定して描く。`letters()` で 1 文字ずつ動かせる。日本語は `jp` (Noto Sans JP) に自動で切り替わる。コードを見せる文字列は `features=text.CODE` で合字を切る (mono は `<~` `->` を矢印にまとめる)。`paragraph` / `layout` で禁則つきの折り返し。フォントは `assets/fonts` (`sans` / `sans-mono` / `mono` / `jp`) |
 | `noise` | `perlin3` `fbm3` `curl2` `noise1` `hash01` |
 | `post` | `bloom` `chroma` `grain` `vignette` `glitch` `scanlines` `flash` `grade`。引数に `lambda ctx: ...` を渡せる。光学系はリニア空間、演出系 (`fx.space = "display"`) は sRGB で処理される |
 | `media` | `Image` / `Video` (動画は `comp.prepare.append(clip.prepare)` で作品の fps にフレームを書き出す)、`fit="cover" / "contain"` |
-| `audio` | `Mix`: `hit` (サンプル)、`tone` (内蔵シンセ)、`instrument` (Surge XT 等の VST3。`patch="Pads/MKS-70 Warm Pad"` でパッチ指定)、`file` (音声・動画の音)、`clip` (Clip の音を速度変化に追従させる。フリーズ中は無音)、`sfx`、`pattern` (TidalCycles / Strudel の記法で 1 小節を 1 周期として鳴らす。`mx.pattern("808bd*4, ~ cp, 808hc*8?", tl)`、音名は `patch=` で Surge XT)、`fx` `duck`、`render` で LUFS を揃えて wav 出力。音楽のリズムとフレーズは for 文より `pattern` で書く |
+| `audio` | `Mix`: `hit` (サンプル)、`tone` (内蔵シンセ)、`instrument` (Surge XT 等の VST3。`patch="Pads/MKS-70 Warm Pad"` でパッチ指定)、`file` (音声・動画の音)、`clip` (Clip の音を速度変化に追従させる。フリーズ中は無音)、`sfx`、`pattern` (TidalCycles / Strudel の記法で 1 小節を 1 周期として鳴らす。`mx.pattern("808bd*4, ~ cp, 808hc*8?", tl)`、音名は `patch=` で Surge XT)、`fx` `duck`、`render` で LUFS を揃えて wav 出力。音楽のリズムとフレーズは for 文より `pattern` で書く (`swing=0.55` で 16 分の裏を後ろへ、`params=` で Surge XT のポルタメントなど)。`audio.Sweep(pb.LadderFilter(), cutoff_hz=[(秒, 値), ...])` を `fx` の並びやマスターに入れると、エフェクトの値を時刻で動かせる (フィルタの開閉・フェード)。`audio.pattern_events` は音を鳴らさずに `pattern` の時刻だけを返す (画面のコードを光らせる) |
 | `sfxlib` | 録音の効果音 1,139 個 (CC0、19 種)。`sfxlib.sound("hit/<id>")` を `mx.sfx(sound, t)` で山を t に合わせて置く。打撃・クリック・風切りはここから選び、合成しない。`gain_db=None` で音楽に対して浮く音量を自動で決め、`mx.hero(t, hit, boom, riser)` で見せ場 (打撃・低音・ライザーを山で揃えて重ねる) を作る。環境音 (種類 `ambience`、`motion sfx ambience` で部屋の空気・雨・街・カフェ・オフィス・森・風・夜の虫) は `mx.ambience("rain", level_db=-34)` で音楽の下に輪にして敷く。CC BY の音 (`sfx search --by`) を使うと書き出しの横に `credits.txt` ができ、投稿に出典を書く。BGM は見せ場の前でも止めたり細らせたりしない (`stop_before` / `build` は拍の無い作品だけ) |
 | `soundqa` | review の音の検査: Cue の kind と書き出した絵の動き、効果音の置き場所、自分の帯域で浮くか、見せ場、ラウドネス・真のピーク・無音。音の形 (最初の音・終わりの無音・穴・LRA。プロの 7 本と並べる情報)、書き出しの傷 (直流・端のクリック・クリップ・途中の 0)、同じ音の連打は警告。review.md に「耳で確かめる時刻」と、カットに音がある割合を時刻をずらした偶然の水準と並べて出す |
 | `ears` | 音を言葉で聞く (CLAP)。`ears.match(files, "wind blowing")` で z (3 以上で強い一致)、`ears.describe(file)` で何に聞こえるか。効果音・環境音を選ぶときに使い、書き出しの中では使わない (読み込みに 20 秒) |
@@ -97,6 +97,7 @@ uv run pytest                                           # テスト (描画を�
 - `Knowledge/motion-studio-references-2026-10.md`: 参考事例の調査 (rari の記事・motionpromptgallery など)
 - `Knowledge/motion-sound-and-variants-references-2026-10.md`: 実録音の効果音と音の QA (opus-sound-layer)、案を並べて選ぶ反復 (fframes)
 - `Knowledge/iteration-trail-references-2026-10.md`: 反復の軌跡を見せる動画 (版ごとのコマ・系譜・タイムラインの段) の調査と `motion trail`
+- `Knowledge/music-production-bluehour-2026-10.md`: 電子音のチル (projects/bluehour) で分かった、ジャズから離れる要素・曲の中で音色を選ぶと「企業の BGM」の原因が分かること・CLAP の語彙に無いジャンルの測り方・TR-808 のサンプルの名前
 - `Knowledge/music-production-afterglow-2026-10.md`: 今ある機能で作った曲 (projects/afterglow) で分かった、音楽を作れる範囲・音色を曲の中で選び直す理由・楽器の音量の揃え方・サックスの実音の使い方
 - `Knowledge/earshot-ears-for-agents-2026-10.md`: earshot (エージェントの耳) の CLAP の較正・プロの 7 本の音の実測・取り込んだものと見送ったもの
 - `Knowledge/manimgx-agent-animation-engine-2026-10.md`: ManimGX (Rust + wgpu、Manim 互換) の速さの工夫と、エージェント向けの確認手段 (`inspect` のストーリーボードとレイアウト検査)

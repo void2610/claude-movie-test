@@ -1,0 +1,67 @@
+# 電子音のチルを作る: bluehour (2026-10-17)
+
+`projects/bluehour` は、afterglow (サックスの lo-fi) に「ジャズっぽい」と言われたのを受けて別に作った、電子音のチル (90 BPM・F・117 秒)。画面には実際に鳴らしている TidalCycles の記法のパターンを出し、鳴った語を光らせる。
+
+## ジャズから離れたもの
+- afterglow のジャズらしさは、サックスの音色・♭9 / ♭13 / 13th の和音・強い跳ね (58%)・ブラシのドラム
+- bluehour で外したもの:
+  - サックスはシンセのリード、生ドラムは TR-808 に替えた
+  - 和音は add9 / maj9 / sus2 / 分数コードまで
+  - 跳ねは 55%
+- 同じ問いで並べた CLAP の z (区間の 10 秒)。afterglow → bluehour の順:
+
+| 問い | afterglow | bluehour |
+|---|---|---|
+| 「jazz music」 | 3.1〜4.1 | 0.7〜1.6 |
+| 「a saxophone」 | 約 3 | 約 0 |
+| 「electronic music made with synthesizers」 | 0.7〜1.0 | 2.5〜3.3 |
+| 「chillwave music」 | 2.0 | 3.5〜3.8 |
+| 「downtempo electronic music」 | 1.7〜1.9 | 3.1〜3.4 |
+
+## 分かったこと
+- **「企業の BGM」に聞こえた原因はアルペジオの音色だった**
+  - 楽器を 1 つずつ抜いたミックスを CLAP に聞かせると、抜いたときだけ「inspirational corporate background music」が 3.3 → 2.6 に下がった
+  - その音色 `Plucks/Friendly` は、単体では「cheerful ukulele music」3.0 に聞こえていた
+  - 曲の中で 11 本を比べ、`Plucks/Sinus Verby Pops` に替えた。単体の聞こえ方は「minimal electronic music」が 1 位になった
+  - 単体の試聴で 1 位だった音色が、曲の中では一番悪いこともある (afterglow のパッドと同じ)
+- **CLAP の語彙にはチルウェーブ・ダウンテンポが無い**
+  - 遅いビートの電子音は、語彙の中では「lo-fi hip hop beat」「trap beat」が上に出る
+  - 次の 7 通りを試しても、どれも 2.2〜3.4 から動かなかった:
+    - テンポ 100 / 110 / 118 (4 つ打ち)
+    - 16 分のハットを抜く
+    - クラップをリムに替える
+    - スネアを抜く
+    - リードの音色を替える
+  - 狙いのジャンルは語彙に頼らず、`ears.calibrate(A, ears.embed_text(["chillwave music", ...]))` で問いを足して、比べたい曲と並べて測る
+- **パッチの出力差**: `Leads/Butter` は利得 0 で -9.7 LUFS (パッドより 7dB 大きい)。-8dB にした
+- **TR-808 のサンプルの名前** (Dirt-Samples):
+  - `808hc` はハイハットではなくハイコンガ (中心周波数 700Hz)
+  - `808` の中身は 0 = CB (カウベル)、1 = CH (クローズドハット)、2 = CL (クラーベ)、3 = CP (クラップ)、4 = MA (マラカス)、5 = RS (リムショット)
+  - `808bd` は BD{トーン}{減衰}
+    - 例 `808bd:3` = BD0050 は減衰 0.4 秒
+    - 減衰 75 は 0.8 秒で、サブベースとぶつかる
+  - カバサ (シェイカー) は `drumtraks:0`
+- **mini-notation の `@` は `< >` の中では効かない**
+  - `<a b c@2>` の c は 1 周期で、4 周期目は a に戻る
+  - 長く伸ばす和音は別のパートにして `/2` で書く
+- **Surge XT のグライド**:
+  - `params={"a_play_mode": "Mono (Single Trigger & Fingered Portamento)", "a_portamento": "70.8 ms"}` で、重なった音だけが滑る
+  - 値は `plugin.parameters[名前].valid_values` にある文字列のどれかでないと受け付けない
+  - パターンでは `legato=1.06` で音を重ねる
+- **等幅の書体の合字**: Fragment Mono は `<~` や `->` を矢印の記号 1 つにまとめる。コードを見せる文字列は `features=text.CODE` で合字を切る
+- **終わり方**:
+  - 最後の和音を離して終わると、パッドの減衰の分だけ最後の 2 秒で急に落ちた。終わりの無音は 0.01 秒だった
+  - 伸ばしたまま、マスターに `audio.Sweep(pb.Gain(), gain_db=[(小節 42, 0), (小節 43, -8), (終わり, -40)])` をかけて消した
+
+## エンジンに足したもの
+- `audio.Sweep(plugin, **曲線)`: pedalboard のエフェクトの値を 4ms ごとに折れ線で動かす。`Mix.fx` の並びとマスターにそのまま入れられる
+  - 正の値どうしは対数で補間する。周波数の開き方が耳に等速になる
+  - フィルタの開閉と最後のフェードに使った
+- `Mix.pattern(swing=, params=)`: 16 分の裏だけを後ろへずらす。`params` は Surge XT へ上書きする値
+- `audio.pattern_events`: 音を鳴らさずにパターンの時刻だけを返す。絵の側でコードを光らせるのに使う
+- `text.CODE`: 合字を切る OpenType の指定。`overlay.pattern_code` はこれで組む
+
+## 見送ったもの
+- 4 つ打ちの 118 BPM (チルハウス): CLAP の印象は 90 BPM とほぼ同じで、遅いほうがチルだったので見送った
+- 16 分のハットの細かい刻み (`?` で間引く): 「trap beat」寄りの要素で、取ってもほとんど変わらなかった。音数を減らす側に倒した
+- クラップ: リムに残響を付けたほうが、c の区間で「minimal electronic」+0.6・「trap」-0.5 だった
