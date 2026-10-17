@@ -98,11 +98,12 @@ def main() -> None:
     vr.add_argument("project")
     vr.add_argument("--scale", type=float, default=0.5)
 
-    fx = sub.add_parser("sfx", help="録音の効果音ライブラリ (kit / ambience / browse / search / add / sheet)")
-    fx.add_argument("action", choices=["kit", "ambience", "browse", "search", "add", "sheet"])
-    fx.add_argument("args", nargs="*", help="browse: 種類 / search: 検索語 / add・sheet: ファイル")
+    fx = sub.add_parser("sfx", help="録音の効果音ライブラリ (kit / ambience / browse / search / add / sheet / hear)")
+    fx.add_argument("action", choices=["kit", "ambience", "browse", "search", "add", "sheet", "hear"])
+    fx.add_argument("args", nargs="*", help="browse: 種類 / search: 検索語 / add・sheet・hear: ファイル")
     fx.add_argument("--type", help="search / add の種類")
-    fx.add_argument("--like", default="", help="browse: 素材・重さ・雰囲気の語 (例: \"metal heavy\")")
+    fx.add_argument("--like", default="", help="browse・hear: 音の説明 (例: \"a heavy metal impact\")。CLAP で音そのものと比べる")
+    fx.add_argument("--by-tags", dest="tags_only", action="store_true", help="browse: CLAP を使わずタグの語だけで並べる")
     fx.add_argument("-n", type=int, default=12)
     fx.add_argument("--short", dest="length", action="store_const", const="short")
     fx.add_argument("--long", dest="length", action="store_const", const="long")
@@ -148,7 +149,7 @@ def main() -> None:
         if args.action == "browse":
             if not args.args:
                 raise SystemExit("種類: " + ", ".join(f"{k} ({v['about']})" for k, v in sfxlib.TYPES.items()))
-            hits = sfxlib.browse(args.args[0], args.like, args.n, args.length, args.tone)
+            hits = sfxlib.browse(args.args[0], args.like, args.n, args.length, args.tone, ears=not args.tags_only)
             print(f"{args.args[0]}: {sfxlib.TYPES[args.args[0]]['about']}   * = 種類だけ指定したときの既定")
             for e in hits:
                 print(sfxlib.describe(e))
@@ -168,6 +169,17 @@ def main() -> None:
                 raise SystemExit("--type が要る")
             for sd in sfxlib.add(args.args, args.type, sfxlib.words(args.tags), args.credit, license=args.license):
                 print(f"{sd['file']}  {sd['verdict']}")
+            return
+        if args.action == "hear":
+            from . import ears
+            files = [str(sfxlib.LIB / sfxlib.entry(f)["file"]) if "/" in f and not os.path.exists(f) else f
+                     for f in args.args]
+            embs = ears.embed_files(files)
+            zq = ears.calibrate(embs, ears.embed_text([args.like]))[1][:, 0] if args.like else None
+            for i, (f, a) in enumerate(zip(files, embs)):
+                head = f"  「{args.like}」 z {zq[i]:+.1f} ({ears.verdict(zq[i])})" if zq is not None else ""
+                print(f"{f}{head}")
+                print("   聞こえ方: " + ", ".join(f"{n} {z:+.1f}" for n, _, z in ears.describe(f, 5, a)))
             return
         print(f"-> {sfxlib.sheet(args.args, args.out)}")
         return

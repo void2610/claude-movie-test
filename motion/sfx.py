@@ -20,6 +20,7 @@ class Sound:
     buf: np.ndarray  # (2, n) float32
     peak: float      # 山の位置 (秒)
     origin: str = "synth"  # 録音なら sfxlib の id
+    pitch: float = 0.0     # 元の録音からずらした半音 (同じ音の連打を見分けるため)
 
     @property
     def duration(self) -> float:
@@ -33,7 +34,7 @@ class Sound:
         src = np.arange(self.buf.shape[1])
         pos = np.arange(0, self.buf.shape[1] - 1, rate)
         buf = np.vstack([np.interp(pos, src, ch) for ch in self.buf]).astype(np.float32)
-        return Sound(buf, self.peak / rate, self.origin)
+        return Sound(buf, self.peak / rate, self.origin, self.pitch + semitones)
 
 
 def _stereo(x: np.ndarray, pan: np.ndarray | float = 0.0) -> np.ndarray:

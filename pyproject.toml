@@ -11,6 +11,8 @@ dependencies = [
     "pyloudnorm>=0.2.0",
     "scipy>=1.18.1",
     "skia-python>=144.0.post2",
+    "torch>=2.14.1",
+    "transformers>=5.20.1",
     "uharfbuzz>=0.56.2",
 ]
 

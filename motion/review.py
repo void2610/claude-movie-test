@@ -39,6 +39,7 @@ class Metrics:
     edge_ink: dict[int, float]      # フレーム → 端 5% に描かれている量 (0〜1)
     loop_diff: float | None         # 最初と最後のコマの差 (0〜255)
     diff: np.ndarray | None = None  # フレームごとの前のコマとの差 (音の検査で絵の動きとして使う)
+    sync_chance: dict = None        # 種類 → 時刻をずらしても立ち上がりが見つかる割合 (偶然の水準)
 
 
 def _default_shots(comp) -> ShotList:
@@ -181,12 +182,11 @@ def _error_view(i: int, fd, full: dict, fps: int) -> tuple[np.ndarray | None, in
     return crop, w, h + (70 if fd.where else 48)
 
 
-def _attack_offsets(wav: str, times: list[float], window: float = 0.06) -> list[tuple[float | None, float]]:
-    """各時刻の前後 window 秒で最も急な音量の立ち上がりの位置 (ms) と、その鋭さ (周囲 2 秒の中央値比) を返す。
+# 偶然の水準を測るずらし量 (秒)。拍の整数倍を避けた値 (earshot の profile.SHIFTS)
+SHIFTS = (0.23, 0.31, 0.43, 0.57, 0.71, 0.87, 1.13, 1.37, -0.29, -0.41, -0.53, -0.67, -0.79, -0.97, -1.19, -1.43)
 
-    密なミックスでは「どの立ち上がりがその拍の音か」を ms 単位では決められないので、鋭さは有無の判定にだけ使う。
-    スペクトル差分 (librosa の onset) は約 93ms の窓で時刻がずれ、低音だけのキックにほぼ反応しないため使わない。
-    """
+
+def _rise_curve(wav: str) -> tuple[np.ndarray, np.ndarray]:
     from .audio import load
     y = load(wav).mean(axis=0)
     sr = 48000
@@ -195,7 +195,16 @@ def _attack_offsets(wav: str, times: list[float], window: float = 0.06) -> list[
     idx = np.arange(n)[:, None] * hop + np.arange(win)[None, :]
     db = 10 * np.log10((y[idx] ** 2).mean(axis=1) + 1e-10)
     rise = np.maximum(np.diff(db, prepend=db[0]), 0)
-    tt = np.arange(n) * hop / sr + win / (2 * sr)
+    return np.arange(n) * hop / sr + win / (2 * sr), rise
+
+
+def _attack_offsets(wav: str | tuple, times: list[float], window: float = 0.06) -> list[tuple[float | None, float]]:
+    """各時刻の前後 window 秒で最も急な音量の立ち上がりの位置 (ms) と、その鋭さ (周囲 2 秒の中央値比) を返す。
+
+    密なミックスでは「どの立ち上がりがその拍の音か」を ms 単位では決められないので、鋭さは有無の判定にだけ使う。
+    スペクトル差分 (librosa の onset) は約 93ms の窓で時刻がずれ、低音だけのキックにほぼ反応しないため使わない。
+    """
+    tt, rise = _rise_curve(wav) if isinstance(wav, str) else wav
     out = []
     for t in times:
         m = (tt >= t - window) & (tt <= t + window)
@@ -206,6 +215,14 @@ def _attack_offsets(wav: str, times: list[float], window: float = 0.06) -> list[
         around = rise[(tt >= t - 1) & (tt <= t + 1)]
         out.append(((tt[i] - t) * 1000, float(rise[i] / (np.median(around[around > 0]) + 1e-9))))
     return out
+
+
+def sync_chance(curve: tuple, times: list[float], dur: float) -> float:
+    """時刻を SHIFTS だけ輪にしてずらしても、立ち上がりが見つかる割合。音が密なら、合わせなくても高くなる。"""
+    if not times:
+        return 0.0
+    return float(np.mean([np.mean([st >= 1.8 for _, st in _attack_offsets(curve, [(t + s) % dur for t in times])])
+                          for s in SHIFTS]))
 
 
 def _waveform(wav: str, n: int) -> np.ndarray:
@@ -252,10 +269,13 @@ def measure(project, comp, shots: ShotList, scale: float = 0.08, wav: str | None
         border = np.ones_like(ink)
         border[my:-my, mx:-mx] = False
         edge[f] = float(ink[border].mean())
-    sync = []
+    sync, chance = [], {}
     grid = comp.timeline.beat_len / 2
+    curve = _rise_curve(wav) if wav else None
     for kind, ts in (("カット", shots.cuts), ("キュー", list(comp.cues))):
-        strengths = _attack_offsets(wav, list(ts)) if wav else [(None, 9.9)] * len(ts)
+        strengths = _attack_offsets(curve, list(ts)) if wav else [(None, 9.9)] * len(ts)
+        if wav and len(ts):
+            chance[kind] = sync_chance(curve, [float(t) for t in ts], comp.duration)
         for t, (_, strength) in zip(ts, strengths):
             off = (t - comp.timeline.offset) / grid
             sync.append((kind, t, (off - round(off)) * grid * 1000, strength >= 1.8))
@@ -270,7 +290,7 @@ def measure(project, comp, shots: ShotList, scale: float = 0.08, wav: str | None
         a, b = r.frame(0), r.frame(comp.nframes - 1)
         comp.duration -= 1 / comp.fps
         loop_diff = float(np.abs(a.astype(int) - b.astype(int)).mean())
-    return Metrics(rest_ratio, contrast, pops, pace, changes, sync, edge, loop_diff, full)
+    return Metrics(rest_ratio, contrast, pops, pace, changes, sync, edge, loop_diff, full, chance)
 
 
 @dataclass
@@ -414,7 +434,7 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     err_h = sum(h for _, _, h in views) + 60 + (50 if notes else 0)
     detail_h = len(shots) * 360 + 60
     H = (120 + err_h + len(shots) * row_h + len(cut_frames) * cut_h + 260 + max(i.shape[0] for i in phone.values())
-         + 120 + detail_h + 430)
+         + 120 + detail_h + 520)
     sh = _Sheet(W, H)
     y = 40
     sh.text(f"{comp.name}  レビュー  {datetime.datetime.now():%Y-%m-%d %H:%M}", 24, y, 26)
@@ -497,7 +517,7 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
     y = gy + gh + 60
     sh.text("音の検査 (効果音・見せ場と、絵の動き)", 24, y + 10, 18)
     sh.image(sound_strip(sq, wav, comp, gw), gx, y + 30)
-    y += 430
+    y += 520
 
     sh.text("スマホ (縦 360×780) での見え方", 24, y + 10, 18)
     x = 24
@@ -538,6 +558,12 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
         lines += [f"  - {k} {t:.2f}s: グリッドから {d:+.0f}ms" for k, t, d in off_grid]
         lines.append(f"- 目立つ音の立ち上がりが無いカット・キュー: {len(silent)} 箇所")
         lines += [f"  - {k} {t:.2f}s" for k, t in silent]
+        # プロの 7 本でも、カットに音が付く割合は時刻をずらした偶然の水準とほぼ同じ (earshot の実測)。合わせたかは差で見る
+        for kind, ch in (m.sync_chance or {}).items():
+            rows = [has for k, _, _, has in m.sync if k == kind]
+            got = float(np.mean(rows))
+            lines.append(f"- {kind}に立ち上がりがある割合: {got:.0%} (時刻をずらした偶然の水準 {ch:.0%}。"
+                         f"{'音で合わせている' if got - ch >= 0.25 else '偶然と見分けられない。プロの 7 本も多くはこの水準'})")
     edge = [f for f, v in m.edge_ink.items() if v > 0.02]
     lines.append(f"- 画面の端 5% に要素がある: {len(edge)} コマ ({', '.join(f'{f / fps:.1f}s' for f in edge[:8])})"
                  if edge else "- 画面の端 5% に要素があるコマ: なし")
@@ -549,6 +575,8 @@ def review(project: str | Path, out_dir: str | Path | None = None, scale: float 
         synth = sum(e["origin"] == "synth" for e in sq.events)
         lines.append(f"- 効果音 {len(sq.events)} 個 (見せ場 {heroes}、録音 {len(sq.events) - synth}、合成 {synth})")
     lines += [f"- 警告 {t:.2f}s `{r}`: {d}" for t, r, d in sq.warnings] or ["- 警告なし"]
+    if sq.shape:
+        lines.append("- 音の形 (基準はプロのローンチ映像 7 本。作風が違えば外れてよい): " + " · ".join(sq.shape))
     lines += [f"- 絵と一致 {ln}" for ln in sq.passed]
     if sq.listen:
         lines += ["", "## 耳で確かめる時刻", "", "数値では合格でも、ここだけは人間が聞いて確かめる。", ""]

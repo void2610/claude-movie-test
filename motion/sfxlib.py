@@ -511,16 +511,25 @@ def catalog(root: Path = LIB) -> dict:
 
 
 def browse(typ: str, like: str = "", n: int = 12, length: str | None = None, tone: str | None = None,
-           root: Path = LIB) -> list[dict]:
-    """種類の中から、like の語 (素材・重さ・雰囲気) に合う順に n 個。length は short / long、tone は bright / dark。"""
+           root: Path = LIB, ears: bool = False) -> list[dict]:
+    """種類の中から、like の語 (素材・重さ・雰囲気) に合う順に n 個。length は short / long、tone は bright / dark。
+
+    ears=True なら、タグの語ではなく CLAP で音そのものが like の説明に合う順に並べ、各音に z を付ける
+    (題名やタグと中身が違う録音を避けるため。書き出しの中では呼ばない: モデルの読み込みに 20 秒かかる)。
+    """
     pool = [e for e in catalog(root)["sounds"] if e["type"] == typ]
     if not pool:
         raise ValueError(f"種類 '{typ}' の音が無い。種類: {', '.join(TYPES)}")
     q = words(like)
+    zs = {}
+    if ears and like:
+        from . import ears as ears_
+        z = ears_.match([root / e["file"] for e in pool], like)
+        zs = {e["id"]: float(v) for e, v in zip(pool, z)}
 
     def score(e):
         hay = " ".join(e["tags"] + [e["id"]])
-        s = sum(2 if w in e["tags"] else 1 if w in hay else 0 for w in q)
+        s = zs[e["id"]] if zs else sum(2 if w in e["tags"] else 1 if w in hay else 0 for w in q)
         if length == "short":
             s -= e["dur_s"]
         elif length == "long":
@@ -531,7 +540,8 @@ def browse(typ: str, like: str = "", n: int = 12, length: str | None = None, ton
             s -= e["centroid_hz"] / 4000
         return (s, e["default"])
 
-    return sorted(pool, key=score, reverse=True)[:n]
+    hits = sorted(pool, key=score, reverse=True)[:n]
+    return [dict(e, z=zs[e["id"]]) for e in hits] if zs else hits
 
 
 def entry(ref: str, root: Path = LIB) -> dict:
@@ -647,47 +657,114 @@ def bed(ref: str, root: Path = LIB) -> np.ndarray:
     return load(str(root / e["file"])).mean(axis=0)
 
 
-AMBIENCE_KIT = ["room tone", "rain ambience", "city street ambience", "cafe ambience", "office ambience",
-                "forest ambience", "wind ambience", "night crickets ambience"]
+# 検索語と、CLAP で中身を確かめる説明 (earshot の語彙の語)。どれかで z が AMBIENCE_Z 以上なら合格
+AMBIENCE_KIT = {
+    "room tone": ["a quiet room tone", "a computer fan hum", "a quiet room at night"],
+    "rain ambience": ["heavy rain", "rain on a window", "rain on a roof"],
+    "city street ambience": ["a city street with traffic"],
+    "cafe ambience": ["a busy cafe"],
+    "office ambience": ["an office ambience"],
+    "forest ambience": ["a forest ambience", "birds singing in the morning", "wind in pine trees"],
+    "wind ambience": ["wind blowing", "a gust of wind rushing past", "wind in pine trees"],
+    "night crickets ambience": ["crickets at night", "a summer meadow with insects"],
+}
+# earshot の検証で z 2.5 以上の適合率は 41% (無関係な説明との取り違え込み)、3 以上は 98%
+AMBIENCE_Z = 2.5
 
 
-def ambience_kit(root: Path = LIB, queries: list[str] = AMBIENCE_KIT, per: int = 2) -> list[dict]:
-    """環境音のひと揃え: 検索語ごとに CC0 の候補から合格したものを per 個ずつ足す。"""
+def _ears_z(files: list[Path], descriptions: list[str]) -> np.ndarray:
+    from . import ears
+    _, z = ears.calibrate(ears.embed_files(files), ears.embed_text(descriptions))
+    return z.max(axis=1)
+
+
+def _remove(ids: list[str], root: Path = LIB) -> None:
+    """ライブラリに足した音を外す (wav と計測の json も消す)。"""
+    gone = set(ids)
+    added = [x for x in _added(root) if x["id"] not in gone]
+    (root / "added.json").write_text(json.dumps(added, ensure_ascii=False, indent=1), encoding="utf-8")
+    entries = [x for x in catalog(root)["sounds"] if x["id"] not in gone]
+    lines = [ln for ln in (root / "CREDITS.md").read_text(encoding="utf-8").splitlines()
+             if ln.startswith("- ") and not any(ln.startswith(f"- {i}:") for i in gone)]
+    _write_catalog(root, entries, lines)
+    for i in gone:
+        for ext in (".wav", ".json"):
+            (root / f"{i}{ext}").unlink(missing_ok=True)
+
+
+def ambience_kit(root: Path = LIB, queries: dict[str, list[str]] = AMBIENCE_KIT, per: int = 2) -> list[dict]:
+    """環境音のひと揃え: 検索語ごとに CC0 の候補から、途中に目立つ音が無く、CLAP で説明に合うものを per 個ずつ足す。
+
+    題名に「wind」とあってもドローンや滝の録音があるので、題名ではなく音で選ぶ。ライブラリにある同じ検索語の音も
+    確かめ直し、合わないものは外す。
+    """
+    def tagged(e, q):
+        return set(words(q)) - {"ambience"} <= set(e["tags"])
+
+    # 先に、ライブラリの音を自分の検索語のどれかの説明で確かめ直す (部屋の空気はオフィスの語も持つので、どれか 1 つに合えば残す)
+    amb = [e for e in catalog(root)["sounds"] if e["type"] == "ambience"]
+    mine = [e for e in amb if any(tagged(e, q) for q in queries)]
+    if mine:
+        zs = {q: _ears_z([root / e["file"] for e in mine], d) for q, d in queries.items()}
+        bad = [e["id"] for i, e in enumerate(mine) if not any(tagged(e, q) and zs[q][i] >= AMBIENCE_Z for q in queries)]
+        if bad:
+            print(f"sfx: 音が説明に合わない {len(bad)} 個を外す ({', '.join(bad)})", flush=True)
+            _remove(bad, root)
     added = []
-    for q in queries:
-        sides = [sd for sd in search(q, "ambience", n=8, root=root) if sd["verdict"] == "ok"]
-        # 途中に目立つ音が無いだけでは別物 (ドローン等) も通るので、題名に検索語を含むものを先にする
-        hit = lambda sd: len(set(words(q)) - {"ambience"} & set(words(sd.get("source", {}).get("title", ""))))  # noqa: E731
-        sides = sorted(sides, key=lambda sd: (-hit(sd), sd["spread_db"]))[:per]
+    for q, descs in queries.items():
+        have = [e for e in catalog(root)["sounds"] if e["type"] == "ambience" and tagged(e, q)]
+        if have:
+            have = [e for e, z in zip(have, _ears_z([root / e["file"] for e in have], descs)) if z >= AMBIENCE_Z]
+        sides = [sd for sd in search(q, "ambience", n=12, root=root) if sd["verdict"] == "ok"] if len(have) < per else []
+        if sides:
+            zs = _ears_z([Path(sd["file"]) for sd in sides], descs)
+            sides = [sd for z, sd in sorted(zip(zs, sides), key=lambda x: -x[0]) if z >= AMBIENCE_Z]
+            ids = {e["id"] for e in catalog(root)["sounds"]}
+            sides = [sd for sd in sides if f"ambience/own-{slug(Path(sd['file']).stem)}" not in ids][:per - len(have)]
         if sides:
             added += add([sd["file"] for sd in sides], "ambience", words(q), root=root)
-        print(f"sfx: {q}: {len(sides)} 個", flush=True)
+        print(f"sfx: {q}: {len(have) + len(sides)} 個", flush=True)
     return added
 
 
 def describe(e: dict) -> str:
     note = "" if e.get("note") is None else f"{e['note']:.0f}"
     tags = " ".join(t for t in e["tags"] if t not in ("kenney", "freesound"))[:56]
-    return (f"{'*' if e.get('default') else ' '}{e['id']:50s} {e['dur_s']:5.2f}s {e['rise_ms']:5.0f}ms "
+    z = f"z{e['z']:+5.1f} " if "z" in e else ""
+    return (f"{'*' if e.get('default') else ' '}{e['id']:50s} {z}{e['dur_s']:5.2f}s {e['rise_ms']:5.0f}ms "
             f"{e['centroid_hz']:6d}Hz {note:>4s}  {tags}")
 
 
 # ---------------------------------------------------------------- 見て選ぶための画像
 
-def _spectrogram(x: np.ndarray, w: int, h: int, fmax: float = 12000) -> np.ndarray:
+def _spectrogram(x: np.ndarray, w: int, h: int, fmax: float = 12000, log: bool = False) -> np.ndarray:
+    """log=True は縦軸を 30Hz〜fmax の対数にする (低音の打撃やウーシュのうねりが潰れない)。"""
     import cv2
-    n_fft, hop = 512, 128
+    n_fft, hop = (2048, 512) if log else (512, 128)
     if len(x) < n_fft:
         x = np.pad(x, (0, n_fft - len(x)))
     win = np.hanning(n_fft)
     idx = np.arange(0, len(x) - n_fft + 1, hop)
     spec = np.abs(np.fft.rfft(np.stack([x[i:i + n_fft] * win for i in idx]), axis=1)) ** 2
-    spec = spec[:, :int(fmax / (SR / n_fft))]
+    if log:
+        fr = np.fft.rfftfreq(n_fft, 1 / SR)
+        edges = np.geomspace(30, fmax, h + 1)
+        c = np.cumsum(np.c_[np.zeros(len(spec)), spec], axis=1)
+        lo = np.searchsorted(fr, edges[:-1])
+        hi = np.maximum(np.searchsorted(fr, edges[1:]), lo + 1)
+        spec = (c[:, hi] - c[:, lo]) / (hi - lo)
+    else:
+        spec = spec[:, :int(fmax / (SR / n_fft))]
     db = 10 * np.log10(spec + 1e-12)
     db = np.clip((db - (db.max() - 90)) / 90, 0, 1)
     img = (db.T[::-1] * 255).astype(np.uint8)
     img = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
     return cv2.cvtColor(cv2.applyColorMap(img, cv2.COLORMAP_MAGMA), cv2.COLOR_BGR2RGB)
+
+
+def spectrogram_y(f: float, h: int, fmax: float = 12000) -> float:
+    """対数のスペクトログラムで周波数 f の行 (上が高音)。"""
+    return h * (1 - np.log(f / 30) / np.log(fmax / 30))
 
 
 def sheet(items: list[dict | str | Path], png: str | Path, root: Path = LIB) -> Path:

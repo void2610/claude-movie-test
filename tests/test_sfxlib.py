@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 
 from motion import sfxlib
@@ -126,3 +128,18 @@ def test_search_reuses_saved_results_without_the_network(tmp_path, monkeypatch):
     (tmp_path / "_search").mkdir()
     (tmp_path / "_search" / f"{key}.json").write_text("[]", encoding="utf-8")
     assert sfxlib.search("rain", "ambience", 4, root=tmp_path) == [] and calls == []
+
+
+def test_ambience_kit_keeps_only_recordings_that_sound_like_the_query(tmp_path, monkeypatch):
+    sfxlib._write_catalog(tmp_path, [], [])
+    a = sfxlib.prepare(_wav(tmp_path / "ov-aaaa.wav", _rain()), "ambience", tmp_path / "c", "ov-aaaa")[0]
+    b = sfxlib.prepare(_wav(tmp_path / "ov-bbbb.wav", _rain()), "ambience", tmp_path / "c", "ov-bbbb")[0]
+    drone = sfxlib.prepare(_wav(tmp_path / "ov-dddd.wav", _rain()), "ambience", tmp_path / "c", "ov-dddd")[0]
+    sfxlib.add([drone["file"]], "ambience", ["wind"], root=tmp_path)      # 題名は wind だが中身はドローン
+    sound_like = {"ov-aaaa": 3.4, "ov-bbbb": 1.2, "ov-dddd": 0.9}            # CLAP の z (wind blowing)
+    monkeypatch.setattr(sfxlib, "_ears_z", lambda files, d: np.array(
+        [sound_like[Path(f).stem.removeprefix("own-")] for f in files]))
+    monkeypatch.setattr(sfxlib, "search", lambda q, typ, n, root: [a, b])
+    sfxlib.ambience_kit(tmp_path, {"wind ambience": ["wind blowing"]}, per=2)
+    assert [e["id"] for e in sfxlib.catalog(tmp_path)["sounds"]] == ["ambience/own-ov-aaaa"]
+    assert not (tmp_path / "ambience" / "own-ov-dddd.wav").exists()

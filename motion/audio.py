@@ -447,7 +447,7 @@ class Mix:
         """
         ev = dict(t=round(float(t), 4), start=round(float(t - sound.peak), 4), dur=round(sound.duration, 4),
                   origin=getattr(sound, "origin", "synth"), bus=bus, hero=hero, gain_db=gain_db,
-                  layer=rel_to is not None)
+                  layer=rel_to is not None, pitch=round(float(getattr(sound, "pitch", 0.0)), 3))
         self.events.append(ev)
         self._bufs.append((ev, sound.buf, sound.peak))
         if gain_db is None or rel_to is not None:
